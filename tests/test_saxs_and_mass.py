@@ -114,9 +114,10 @@ def test_element_mass_fractions_pure_compound():
 def test_sample_mass_report_fe2o3_is_physically_sane():
     r = xas_mass.sample_mass_report("Fe2O3", "Fe", "K", pellet_diameter_mm=13.0)
     assert r.edge_energy_ev == pytest.approx(7112.0, abs=5.0)
-    # cross-check against xraydb directly
+    assert r.edge_offset_ev == pytest.approx(3.0)  # new default, was hardcoded 50
+    # cross-check against xraydb directly, using whatever offset the report used
     import xraydb
-    mu_direct = sum(w * xraydb.mu_elam(el, r.edge_energy_ev + 50)
+    mu_direct = sum(w * xraydb.mu_elam(el, r.edge_energy_ev + r.edge_offset_ev)
                     for el, w in xas_mass.element_mass_fractions([("Fe2O3", 1.0)]).items())
     assert r.mu_rho_above == pytest.approx(mu_direct, rel=1e-6)
     assert r.edge_step_mu_rho > 0
@@ -175,6 +176,45 @@ def test_sample_mass_report_rejects_nonpositive_target():
         xas_mass.sample_mass_report("Fe2O3", "Fe", "K", target_mut=0.0)
 
 
+def test_sample_mass_report_edge_offset_defaults_to_3ev():
+    r = xas_mass.sample_mass_report("Fe2O3", "Fe", "K", pellet_diameter_mm=13.0)
+    assert r.edge_offset_ev == pytest.approx(3.0)
+    assert "E₀+3 eV" in r.text("Fe", "K", 13.0)
+
+
+def test_sample_mass_report_custom_edge_offset():
+    import xraydb
+    r3 = xas_mass.sample_mass_report("Fe2O3", "Fe", "K", edge_offset_ev=3.0)
+    r50 = xas_mass.sample_mass_report("Fe2O3", "Fe", "K", edge_offset_ev=50.0)
+    assert r3.edge_offset_ev == pytest.approx(3.0)
+    assert r50.edge_offset_ev == pytest.approx(50.0)
+    # far from any edge structure, +3 eV and +50 eV should be close (~1%) --
+    # a large mismatch against another program is not explained by this
+    # choice alone (see the module docstring / SeO2 investigation).
+    assert r3.mu_rho_above == pytest.approx(r50.mu_rho_above, rel=0.05)
+    mu_direct_3 = sum(w * xraydb.mu_elam(el, r3.edge_energy_ev + 3.0)
+                      for el, w in xas_mass.element_mass_fractions([("Fe2O3", 1.0)]).items())
+    assert r3.mu_rho_above == pytest.approx(mu_direct_3, rel=1e-6)
+
+
+def test_sample_mass_report_rejects_nonpositive_edge_offset():
+    with pytest.raises(ValueError, match="positive"):
+        xas_mass.sample_mass_report("Fe2O3", "Fe", "K", edge_offset_ev=0.0)
+
+
+def test_sample_mass_report_seo2_offset_does_not_explain_hephaestus_gap():
+    """Regression for the SeO2 investigation: switching the offset from
+    50 eV to 3 eV (using PRISM's own xraydb-tabulated edge) barely moves
+    mu_rho_above -- confirming the ~6x mass mismatch against a Hephaestus
+    reference run at a different absolute energy is a tabulated-edge-energy
+    disagreement between the two programs, not this offset choice."""
+    r3 = xas_mass.sample_mass_report("SeO2", "Se", "K", edge_offset_ev=3.0)
+    r50 = xas_mass.sample_mass_report("SeO2", "Se", "K", edge_offset_ev=50.0)
+    assert r3.edge_energy_ev == pytest.approx(12658.0, abs=1.0)
+    assert r3.absorber_fraction == pytest.approx(0.7116, abs=0.001)
+    assert r3.mu_rho_above == pytest.approx(r50.mu_rho_above, rel=0.05)
+
+
 def test_xas_workspace_mass_tab_custom_target(qtbot):
     from qt_xas import XasWorkspace
     widget = XasWorkspace()
@@ -183,3 +223,23 @@ def test_xas_workspace_mass_tab_custom_target(qtbot):
     widget._compute_sample_mass()
     text = widget.mass_report_text.toPlainText()
     assert "μt = 1.5" in text and "your target" in text
+
+
+def test_xas_workspace_mass_tab_edge_offset_defaults_to_3(qtbot):
+    from qt_xas import XasWorkspace
+    widget = XasWorkspace()
+    qtbot.addWidget(widget)
+    assert widget.mass_edge_offset_edit.text() == "3"
+    widget._compute_sample_mass()  # defaults: Bi L3 on the Bi glass composition
+    text = widget.mass_report_text.toPlainText()
+    assert "E₀+3 eV" in text
+
+
+def test_xas_workspace_mass_tab_custom_edge_offset(qtbot):
+    from qt_xas import XasWorkspace
+    widget = XasWorkspace()
+    qtbot.addWidget(widget)
+    widget.mass_edge_offset_edit.setText("50")
+    widget._compute_sample_mass()
+    text = widget.mass_report_text.toPlainText()
+    assert "E₀+50 eV" in text

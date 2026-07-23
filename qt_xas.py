@@ -1202,6 +1202,18 @@ class XasWorkspace(QWidget):
             "μt = 2.5 are always shown too, for reference."
         )
         row.addWidget(self.mass_target_mut_edit)
+        row.addWidget(QLabel("eV above edge"))
+        self.mass_edge_offset_edit = QLineEdit("3")
+        self.mass_edge_offset_edit.setMaximumWidth(40)
+        self.mass_edge_offset_edit.setToolTip(
+            "How far above (and, for the edge step, below) E0 to evaluate "
+            "μ/ρ, in eV. Defaults to 3, matching Hephaestus' own convention. "
+            "Changing this rarely moves the mass much by itself (μ/ρ shifts "
+            "~1% between +3 and +50 eV once clearly past the jump) — a big "
+            "mismatch against another program is more likely a disagreement "
+            "in tabulated edge energy, not this offset."
+        )
+        row.addWidget(self.mass_edge_offset_edit)
         ll.addLayout(row)
         calc_btn = QPushButton("Compute sample mass")
         calc_btn.clicked.connect(self._compute_sample_mass)
@@ -1219,10 +1231,11 @@ class XasWorkspace(QWidget):
             edge = self.mass_edge_combo.currentText()
             diameter = float(self.mass_diam_edit.text() or 13.0)
             target_mut = float(self.mass_target_mut_edit.text() or 2.5)
+            edge_offset_ev = float(self.mass_edge_offset_edit.text() or 3.0)
             report = xas_mass.sample_mass_report(
                 self.mass_comp_edit.toPlainText(), element, edge,
                 basis=self.mass_basis_combo.currentText(), pellet_diameter_mm=diameter,
-                target_mut=target_mut,
+                target_mut=target_mut, edge_offset_ev=edge_offset_ev,
             )
         except Exception as exc:
             QMessageBox.warning(self, "Sample mass", str(exc))
