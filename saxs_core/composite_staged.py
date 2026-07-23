@@ -1111,6 +1111,21 @@ def _build_derived(model: CompositeModel, result_params: Any,
         prefix, _ = prefixes["gp"]
         flat["Rg"] = result_params[prefix + "Rg"].value
         flat["p_gp"] = result_params[prefix + "p"].value
+    if "bu" in prefixes and prefixes["bu"][1] not in pruned_set:
+        # v5: beaucage_unified's own flat aliases, mirroring guinier_porod's
+        # -- Rg/p share the same physical meaning (overall fluctuation size,
+        # high-q Porod-type exponent) as GP's, just via the additive
+        # Guinier+Porod form instead of a matched-crossover one. Falls back
+        # to "Rg"/"p_gp" naming when gp itself isn't ALSO present (the two
+        # are mutually exclusive class-anchored alternatives in the
+        # ladder), so a report/CSV consumer doesn't need to know which of
+        # the two knee-level components actually won.
+        prefix, _ = prefixes["bu"]
+        if "Rg" not in flat:
+            flat["Rg"] = result_params[prefix + "Rg"].value
+        if "p_gp" not in flat:
+            flat["p_gp"] = result_params[prefix + "p"].value
+        flat["B_bu"] = result_params[prefix + "B"].value
     if "pl2" in prefixes and prefixes["pl2"][1] not in pruned_set:
         prefix, _ = prefixes["pl2"]
         p2_value = result_params[prefix + "p2"].value
