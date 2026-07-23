@@ -54,6 +54,8 @@ DEFAULT_PREFIXES: Dict[str, str] = {
 PRESETS: Dict[str, List[str]] = {
     "BG": ["flat_background", "power_law"],
     "BG_DAB": ["flat_background", "power_law", "dab"],
+    "BG_GP": ["flat_background", "power_law", "guinier_porod"],
+    "BG_PL2": ["flat_background", "power_law", "power_law2"],
     "BG_TS": ["flat_background", "power_law", "teubner_strey"],
     "BG_TS_OZ": ["flat_background", "power_law", "teubner_strey", "lorentz_oz"],
     "BG_TS_PL2": ["flat_background", "power_law", "teubner_strey", "power_law2"],

@@ -10,8 +10,11 @@ import pytest
 
 from saxs_core.composite_fit import build_composite, build_preset
 from saxs_core.composite_staged import (
-    _walk_ladder, apply_hygiene, compute_diagnostics, estimate_sigma_model,
-    fit_staged, guess_class, propose_windows, select_best_preset,
+    MorphologyResult, _bg_c_plateau_bounds, _walk_ladder, apply_hygiene,
+    classify_morphology, compute_diagnostics, detect_knee_q, detect_midq_hump,
+    detect_peak_q, estimate_sigma_model, fit_staged, fit_systematic_floor,
+    guess_class, propose_windows, propose_windows_from_classifier,
+    select_best_preset, ts_window_local_delta_bic,
 )
 from saxs_core.curve import Curve
 
@@ -280,3 +283,325 @@ def test_fit_staged_runs_on_real_physic_based_profile_when_available():
         # data/instrument limitation, not a pipeline bug. Sanity-check
         # against the component's own physical bounds instead.
         assert 50.0 <= result.derived["xi"] <= 20000.0
+
+
+# ---------------------------------------------------------------------------
+# Stage A — morphology classifier (v4 PRISM_fit_upgrade4_prompt.md §1)
+# ---------------------------------------------------------------------------
+
+def test_detect_knee_q_finds_transition_on_guinier_porod_curve():
+    q = np.linspace(1e-3, 0.3, 900)
+    model = build_preset("BG")
+    from saxs_core.composite_models import GuinierPorod
+    gp = GuinierPorod()
+    I = model.eval(q, {"bg_C": 50.0, "pl_B": 1e-9, "pl_p": 4.0}) + \
+        gp.eval(q, G=4e8, Rg=600.0, p=4.0)
+    q_knee = detect_knee_q(q, I)
+    assert q_knee is not None
+    assert 1e-3 <= q_knee <= 8e-3
+
+
+def test_detect_knee_q_none_on_pure_power_law():
+    # A pure power law has a roughly constant log-log slope everywhere --
+    # never genuinely flat (>-0.5) before going steep, so no knee exists.
+    q = np.linspace(1e-3, 0.3, 900)
+    I = 1e3 * q ** -3.0
+    assert detect_knee_q(q, I) is None
+
+
+def test_detect_peak_q_finds_ts_peak_with_sigma():
+    curve = _ts_curve(d=1200.0, xi=3000.0, noise=False)
+    sigma = np.sqrt(np.abs(curve.intensity)) * 0.005 + 0.5
+    q_peak, prom = detect_peak_q(curve.q, curve.intensity, sigma=sigma)
+    assert q_peak is not None
+    d_seed = 2.0 * np.pi / q_peak
+    # Just needs to land near the true peak -- it is only a seed/classification
+    # signal, the actual d comes from the downstream chi-square fit.
+    assert 700.0 <= d_seed <= 2000.0
+
+
+def test_detect_peak_q_none_on_flat_curve():
+    curve = _flat_curve()
+    q_peak, prom = detect_peak_q(curve.q, curve.intensity)
+    assert q_peak is None
+
+
+def test_detect_peak_q_never_searches_masked_region():
+    # Regression test for the diagnosed P2Bi2-13 bug: a strong peak sitting
+    # entirely outside [q_lo, q_hi] or in a masked region must never be
+    # returned, no matter how prominent it is.
+    q = np.linspace(1e-3, 0.3, 900)
+    I = 1e3 * q ** -3.0
+    # Inject a huge, sharp, well-resolved spike at q=0.25 (outside the hard
+    # [2e-3, 3e-2] search bound) -- mirrors the real masked WAXS rise.
+    spike = 1e7 * np.exp(-((q - 0.25) ** 2) / (2 * 0.002 ** 2))
+    I = I + spike
+    q_peak, prom = detect_peak_q(q, I)
+    assert q_peak is None or q_peak <= 3e-2
+
+
+def test_detect_midq_hump_flags_positive_residual_bump():
+    q = np.linspace(1e-3, 0.3, 900)
+    I = 1e3 * q ** -2.0
+    mask = (q >= 3e-2) & (q <= 6e-2)
+    I = I.copy()
+    I[mask] *= 1.5
+    assert detect_midq_hump(q, I) is True
+
+
+def test_detect_midq_hump_false_on_smooth_power_law():
+    q = np.linspace(1e-3, 0.3, 900)
+    I = 1e3 * q ** -2.0
+    assert detect_midq_hump(q, I) is False
+
+
+def test_classify_morphology_labels_flat_curve_as_f():
+    curve = _flat_curve()
+    res = classify_morphology(curve.q, curve.intensity)
+    assert res.cls == "F"
+    assert res.q_knee is None
+    assert res.q_peak is None
+
+
+def test_classify_morphology_labels_ts_gp_curve_as_sp():
+    # A smaller Rg than _ts_curve's own default (2000) is used here so the
+    # true Guinier-Porod knee (q1=sqrt(6)/Rg) falls well inside the fixed
+    # [1e-3,8e-3] knee-search range with enough resolvable plateau points
+    # before it on this fixture's linear 900-point q-grid -- Rg=2000 would
+    # put q1~0.0012, right at q_min itself, leaving essentially no points
+    # to show a genuine flat plateau before the transition. ts_S is raised
+    # above _ts_curve's own default (5e6) so the peak stays a genuine,
+    # significant local max even against this Rg's own steeper high-q
+    # tail (Rg=600/1000+ each swamp a 5e6-amplitude peak into a bare
+    # shoulder here; empirically verified this Rg/ts_S combination gives
+    # a genuine, separately-resolvable knee AND peak together).
+    q = np.linspace(1e-3, 0.3, 900)
+    model = build_preset("BG_TS_GP")
+    true = {"bg_C": 500.0, "pl_B": 1e-9, "pl_p": 4.0,
+            "ts_S": 2e7, "ts_d": 1200.0, "ts_xi": 3000.0,
+            "gp_G": 4e8, "gp_Rg": 800.0, "gp_p": 4.0}
+    I = model.eval(q, true)
+    sigma = np.sqrt(np.abs(I)) * 0.005 + 0.5
+    res = classify_morphology(q, I, sigma=sigma)
+    assert res.cls == "S+P"
+    assert res.q_knee is not None
+    assert res.q_peak is not None
+
+
+_MORPHOLOGY_ACCEPTANCE = {
+    # (expected_class_options, must_have_peak)
+    "P0Bi0": (("S", "F"), False),
+    "P1Bi0": (("S", "F"), False),
+    "P2Bi0": (("S", "F"), False),
+    "P5Bi0": (("S", "F"), False),
+    "P8Bi0": (("S", "F"), False),
+    "P2Bi2-13": (("S",), False),   # regression test: no peak
+    "P5Bi5-12": (("S+P",), True),  # clearly visible peak, TS should be accepted
+    "P5Bi8-12": (("S+P",), True),  # must stay compatible with v3 (d~875 Å)
+    "P0Bi8-13": (("S+P",), True),  # must stay compatible with v3
+}
+
+
+@pytest.mark.parametrize("name,expectation", list(_MORPHOLOGY_ACCEPTANCE.items()))
+def test_classify_morphology_matches_v4_ticket_acceptance_on_real_series(name, expectation):
+    import os
+    real_dir = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based"
+    path = os.path.join(real_dir, f"{name}__corr.dat")
+    if not os.path.isfile(path):
+        pytest.skip("real SAXS data folder not present on this machine")
+    from saxs_core.loader import load_curve
+    curve = load_curve(path)
+    res = classify_morphology(curve.q, curve.intensity, sigma=curve.sigma)
+    expected_classes, must_have_peak = expectation
+    assert res.cls in expected_classes, f"{name}: expected class in {expected_classes}, got {res.cls}"
+    if must_have_peak:
+        assert res.q_peak is not None, f"{name}: expected a detected peak, got none"
+    else:
+        assert res.q_peak is None, f"{name}: expected no peak, got q_peak={res.q_peak}"
+
+
+# ---------------------------------------------------------------------------
+# v4 §3 — robust Stage-1 background bounds
+# ---------------------------------------------------------------------------
+
+def test_bg_c_plateau_bounds_brackets_plateau_median():
+    q = np.linspace(0.01, 0.1, 200)
+    I = np.full_like(q, 50.0)
+    lo, hi = _bg_c_plateau_bounds(q, I)
+    assert lo == pytest.approx(0.2 * 50.0)
+    assert hi == pytest.approx(5.0 * 50.0)
+
+
+def test_bg_c_plateau_bounds_falls_back_to_unbounded_on_degenerate_input():
+    q = np.array([])
+    I = np.array([])
+    lo, hi = _bg_c_plateau_bounds(q, I)
+    assert lo == 0.0
+    assert hi == np.inf
+
+
+def test_fit_staged_never_lets_bg_c_collapse_below_its_plateau_bound():
+    # Regression test for the diagnosed P0Bi0 cascade bug: bg_C=1e-12,
+    # unbounded, 14 decades below the actual data, inherited by every
+    # later stage. A synthetic curve with a real, sizeable flat
+    # background must never let the FINAL bg_C collapse near zero.
+    curve = _flat_curve(seed=3)
+    result = fit_staged(curve, multistart_n=4)
+    assert result.params["bg_C"]["value"] > 1.0  # true bg_C was 500.0
+
+
+# ---------------------------------------------------------------------------
+# v4 §4 — classifier-derived windows
+# ---------------------------------------------------------------------------
+
+def test_propose_windows_from_classifier_s_class_uses_knee():
+    q = np.linspace(1e-3, 0.3, 900)
+    morph = MorphologyResult(cls="S", q_knee=0.004, q_peak=None, peak_prominence=None, hump_midq=False)
+    windows = propose_windows_from_classifier(q, np.ones_like(q), morph, q_cut=0.3)
+    lo, hi = windows["W_loq"]
+    assert lo == pytest.approx(float(q[0]))
+    assert hi == pytest.approx(0.7 * 0.004)
+    # no peak -> W_peak is degenerate (empty)
+    assert windows["W_peak"][0] == windows["W_peak"][1]
+
+
+def test_propose_windows_from_classifier_sp_class_brackets_peak():
+    q = np.linspace(1e-3, 0.3, 900)
+    morph = MorphologyResult(cls="S+P", q_knee=0.004, q_peak=0.006, peak_prominence=1.0, hump_midq=False)
+    windows = propose_windows_from_classifier(q, np.ones_like(q), morph, q_cut=0.3)
+    lo, hi = windows["W_peak"]
+    assert lo == pytest.approx(0.006 / 2.0)
+    assert hi == pytest.approx(0.006 * 2.2)
+    assert windows["W_hiq"][0] >= max(2.5 * 0.006, 1.5 * 0.004) - 1e-12
+
+
+def test_propose_windows_from_classifier_f_class_is_degenerate_at_low_q():
+    q = np.linspace(1e-3, 0.3, 900)
+    morph = MorphologyResult(cls="F", q_knee=None, q_peak=None, peak_prominence=None, hump_midq=False)
+    windows = propose_windows_from_classifier(q, np.ones_like(q), morph, q_cut=0.3)
+    assert windows["W_loq"][0] == windows["W_loq"][1]
+    assert windows["W_peak"][0] == windows["W_peak"][1]
+
+
+# ---------------------------------------------------------------------------
+# v4 §5 — systematic-error floor
+# ---------------------------------------------------------------------------
+
+def test_fit_systematic_floor_is_zero_when_already_well_calibrated():
+    q = np.linspace(1e-3, 0.3, 300)
+    model = build_preset("BG")
+    true = {"bg_C": 100.0, "pl_B": 1e-9, "pl_p": 3.0}
+    I = model.eval(q, true)
+    rng = np.random.default_rng(0)
+    sigma = np.sqrt(np.abs(I)) * 0.02 + 0.1
+    I_noisy = I + rng.normal(0, sigma)
+    params = model.to_lmfit_parameters(seed_values=true)
+    result = model.fit(q, I_noisy, sigma=sigma, params=params)
+    windows = {"W_loq": (float(q[0]), float(q[len(q) // 3])),
+              "W_hiq": (float(q[2 * len(q) // 3]), float(q[-1])),
+              "W_peak": (float(q[0]), float(q[0]))}
+    f = fit_systematic_floor(model, result.params, q, I_noisy, sigma, windows)
+    assert 0.0 <= f < 0.05  # well-calibrated synthetic noise needs ~no extra floor
+
+
+def test_fit_systematic_floor_finds_positive_f_when_underdispersed():
+    q = np.linspace(1e-3, 0.3, 300)
+    model = build_preset("BG")
+    true = {"bg_C": 100.0, "pl_B": 1e-9, "pl_p": 3.0}
+    I = model.eval(q, true)
+    rng = np.random.default_rng(1)
+    # genuine measurement sigma is tiny, but the data itself carries an
+    # additional ~8% smooth systematic the sigma column never captures --
+    # exactly the series-wide problem this section targets.
+    sigma = np.full_like(q, 0.5)
+    I_noisy = I * (1.0 + rng.normal(0, 0.08, size=q.shape))
+    params = model.to_lmfit_parameters(seed_values=true)
+    result = model.fit(q, I_noisy, sigma=sigma, params=params)
+    windows = {"W_loq": (float(q[0]), float(q[len(q) // 3])),
+              "W_hiq": (float(q[2 * len(q) // 3]), float(q[-1])),
+              "W_peak": (float(q[0]), float(q[0]))}
+    f = fit_systematic_floor(model, result.params, q, I_noisy, sigma, windows)
+    assert f > 0.02
+
+
+# ---------------------------------------------------------------------------
+# v4 §2 — W_peak-local delta-BIC TS acceptance
+# ---------------------------------------------------------------------------
+
+def test_ts_window_local_delta_bic_favors_ts_when_peak_present():
+    q = np.linspace(2e-3, 0.03, 200)
+    bg_model = build_preset("BG")
+    bg_true = {"bg_C": 50.0, "pl_B": 1e-9, "pl_p": 3.0}
+    ts_model = build_composite(["flat_background", "power_law", "teubner_strey"])
+    ts_true = {"bg_C": 50.0, "pl_B": 1e-9, "pl_p": 3.0, "ts_S": 2e4, "ts_d": 1200.0, "ts_xi": 3000.0}
+    I = ts_model.eval(q, ts_true)
+    sigma = np.sqrt(np.abs(I)) * 0.01 + 0.5
+    windows = {"W_peak": (float(q[0]), float(q[-1])), "W_loq": (float(q[0]), float(q[0])),
+              "W_hiq": (float(q[-1]), float(q[-1]))}
+    bg_params = bg_model.to_lmfit_parameters(seed_values=bg_true)
+    ts_params = ts_model.to_lmfit_parameters(seed_values=ts_true)
+    ts_result = ts_model.fit(q, I, sigma=sigma, params=ts_params)
+    delta = ts_window_local_delta_bic(q, I, sigma, windows, bg_params, ts_model, ts_result)
+    assert delta is not None
+    assert delta > 10.0
+
+
+def test_ts_window_local_delta_bic_none_when_window_too_small():
+    q = np.linspace(2e-3, 0.03, 200)
+    bg_model = build_preset("BG")
+    bg_true = {"bg_C": 50.0, "pl_B": 1e-9, "pl_p": 3.0}
+    I = bg_model.eval(q, bg_true)
+    sigma = np.sqrt(np.abs(I)) * 0.01 + 0.5
+    windows = {"W_peak": (float(q[0]), float(q[0])), "W_loq": (float(q[0]), float(q[0])),
+              "W_hiq": (float(q[-1]), float(q[-1]))}
+    bg_params = bg_model.to_lmfit_parameters(seed_values=bg_true)
+    ts_model = build_composite(["flat_background", "power_law", "teubner_strey"])
+    ts_true = dict(bg_true, ts_S=1e4, ts_d=1200.0, ts_xi=3000.0)
+    ts_params = ts_model.to_lmfit_parameters(seed_values=ts_true)
+    ts_result = ts_model.fit(q, I, sigma=sigma, params=ts_params)
+    delta = ts_window_local_delta_bic(q, I, sigma, windows, bg_params, ts_model, ts_result)
+    assert delta is None
+
+
+# ---------------------------------------------------------------------------
+# v4 §6 — real-series regression tests for the diagnosed cascade bugs
+# ---------------------------------------------------------------------------
+
+def test_fit_staged_p0bi0_bg_c_never_collapses_on_real_profile():
+    import os
+    path = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based\P0Bi0__corr.dat"
+    if not os.path.isfile(path):
+        pytest.skip("real SAXS data folder not present on this machine")
+    from saxs_core.loader import load_curve
+    curve = load_curve(path)
+    result = fit_staged(curve, sample_id="P0Bi0", multistart_n=4)
+    assert result.params["bg_C"]["value"] > 1e-3  # never the diagnosed 1e-12/5e-18 collapse
+    assert result.morphology_cls in ("S", "F")
+    assert result.q_peak is None
+
+
+def test_fit_staged_p2bi2_13_no_peak_regression():
+    import os
+    path = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based\P2Bi2-13__corr.dat"
+    if not os.path.isfile(path):
+        pytest.skip("real SAXS data folder not present on this machine")
+    from saxs_core.loader import load_curve
+    curve = load_curve(path)
+    result = fit_staged(curve, sample_id="P2Bi2-13", multistart_n=4)
+    assert result.morphology_cls == "S"
+    assert result.q_peak is None
+    assert result.no_peak is True
+    assert "teubner_strey" not in result.preset_chosen.lower() and "TS" not in result.preset_chosen
+
+
+def test_fit_staged_p5bi5_12_ts_accepted():
+    import os
+    path = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based\P5Bi5-12__corr.dat"
+    if not os.path.isfile(path):
+        pytest.skip("real SAXS data folder not present on this machine")
+    from saxs_core.loader import load_curve
+    curve = load_curve(path)
+    result = fit_staged(curve, sample_id="P5Bi5-12", multistart_n=6)
+    assert result.morphology_cls == "S+P"
+    assert result.q_peak is not None
+    assert result.no_peak is False  # TS accepted, not rejected by the global-significance guardrail

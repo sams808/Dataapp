@@ -354,6 +354,290 @@ def _locate_peak(q: np.ndarray, I: np.ndarray, smooth_frac: int = 200) -> Tuple[
     return float(q[i_peak]), float(q[left]), float(q[right])
 
 
+# =============================================================================
+# Stage A — morphology classifier (v4 PRISM_fit_upgrade4_prompt.md §1)
+# =============================================================================
+
+@dataclass
+class MorphologyResult:
+    cls: str  # "F" | "S" | "F+P" | "S+P"
+    q_knee: Optional[float]
+    q_peak: Optional[float]
+    peak_prominence: Optional[float]
+    hump_midq: bool
+
+
+def detect_knee_q(q: np.ndarray, I: np.ndarray, q_lo: float = 1e-3, q_hi: float = 8e-3,
+                  exclude_around_peak: Optional[float] = None) -> Optional[float]:
+    """v4 §1 KNEE: local slope going from > -0.5 (Guinier-like plateau) to
+    < -2 (Porod-like falloff) within q in [q_lo, q_hi]; returns the q
+    where the transition is first confirmed (the first point, after a
+    genuinely flat point has been seen, where slope drops below -2) --
+    None if no such flat-then-steep transition exists in this window.
+    Restricted to a FIXED, narrow q-range (unlike detect_guinier_knee's
+    own window-derived W_loq) since this runs BEFORE windows exist at
+    all -- the classifier's own job is to inform what the windows should
+    even be.
+
+    `exclude_around_peak` (a detected q_peak from detect_peak_q) removes
+    a region around it BEFORE smoothing/slope are computed: a genuine TS
+    peak's OWN shape -- rising then falling -- can satisfy "flat(>-0.5)
+    then steep(<-2)" exactly like a real Guinier-Porod knee, whenever the
+    peak's own q0 happens to land inside [q_lo, q_hi] (this instrument's
+    real xi/d range routinely does). Confirmed on a synthetic TS+GP
+    curve with GP's true knee at q1~0.0012 and ts_d=1200 (q0~0.0052,
+    inside this window): without exclusion, detect_knee_q reported the
+    SAME q as the peak itself, not the true, much-lower GP crossover --
+    the peak's own rise/fall pattern winning out over the real knee.
+
+    Removing the points (rather than merely skipping them during the
+    scan afterward) does leave a q-space gap that uniform_filter1d's
+    index-based window treats as adjacent -- a real, known imprecision
+    right at the seam -- but empirically this still recovers d/xi
+    accurately across a 20-curve synthetic battery, while a "keep every
+    point, only skip evaluating the excluded ones during the scan"
+    variant tried first does NOT: the peak's own influence leaks into
+    the smoothed slope of its immediate (non-excluded) neighbors too
+    (the smoothing window is wider than the exclusion radius), which
+    skipping only the excluded indices during the scan doesn't prevent."""
+    q = np.asarray(q, dtype=float)
+    I = np.asarray(I, dtype=float)
+    mask = (q >= q_lo) & (q <= q_hi) & (q > 0) & (I > 0) & np.isfinite(q) & np.isfinite(I)
+    if exclude_around_peak is not None and exclude_around_peak > 0:
+        mask = mask & ~((q >= exclude_around_peak / 1.15) & (q <= exclude_around_peak * 1.15))
+    if int(mask.sum()) < 8:
+        return None
+    qm, Im = q[mask], I[mask]
+    order = np.argsort(qm)
+    qm, Im = qm[order], Im[order]
+    from scipy.ndimage import uniform_filter1d
+    log_q, log_I = np.log10(qm), np.log10(Im)
+    n = len(log_q)
+    win = max(3, n // 6)
+    smoothed = uniform_filter1d(log_I, size=win, mode="nearest")
+    slope = np.gradient(smoothed, log_q)
+    was_flat = False
+    for i in range(len(slope)):
+        if slope[i] > -0.5:
+            was_flat = True
+        elif was_flat and slope[i] < -2.0:
+            return float(qm[i])
+    return None
+
+
+def detect_peak_q(q: np.ndarray, I: np.ndarray, unmasked: Optional[np.ndarray] = None,
+                  sigma: Optional[np.ndarray] = None,
+                  q_lo: float = 2e-3, q_hi: float = 3e-2,
+                  sig_ratio_min: float = 5.0) -> Tuple[Optional[float], Optional[float]]:
+    """v4 §1 PEAK: a genuine local maximum in RAW log10(I) itself (NOT the
+    Kratky q^2*I representation) -- search restricted to UNMASKED q in
+    [q_lo, q_hi] (hard bounds). This restriction is the direct fix for
+    the P2Bi2-13 bug: the old, unrestricted-range peak-finder locked onto
+    the masked high-q WAXS rise (a spurious "peak" at q~0.25 1/Å, d~25.6
+    Å) because nothing stopped it searching there at all; here that
+    region is structurally unreachable regardless of how prominent a
+    feature it has.
+
+    Deliberately NOT the Kratky representation, despite that being this
+    module's usual peak-finding space elsewhere (_locate_peak): ANY
+    smooth Guinier/Guinier-Porod-type monotonic decay has its OWN
+    mathematically-guaranteed local maximum in q^2*I (a property of the
+    Kratky transform itself, already documented on _locate_peak) even
+    though I(q) itself never stops falling -- an earlier version of this
+    function used a locally-baselined Kratky search and found q_peak
+    exactly equal to q_knee for every single "parent" (genuinely
+    peak-free) sample in the real 42-sample series, since ALL of them
+    show this guaranteed knee-artifact hump. Requiring a genuine local
+    maximum in RAW log(I) is the same cross-validation _locate_peak
+    already uses to reject Kratky artifacts, just applied as the PRIMARY
+    detector here rather than a secondary check: a pure monotonic decay
+    cannot produce this no matter how it's transformed, while a real
+    TS-type peak riding on top of it does.
+
+    Significance test uses the curve's OWN propagated measurement sigma
+    (prominence_log vs sigma_log = sigma/(I*ln10)) rather than any
+    noise estimate inferred from the intensity trace itself. This
+    replaced two failed local-trend-residual designs: (1) a fixed-radius
+    local-window MAD blew up whenever a real peak was wide (its own
+    rising/falling flanks dominate a small window's "trend" fit,
+    inflating the noise estimate right where the signal is largest --
+    confirmed on P5Bi8-12's real, order-of-magnitude peak at q=0.0073,
+    which got REJECTED for exactly this reason); (2) excluding each
+    candidate's own prominence-defined base before estimating noise
+    failed the opposite way for two close, narrow real peaks (P5Bi5-12's
+    idx 4 and 7): their combined exclusion zones ate the entire local
+    neighborhood, forcing a window-widening fallback that crossed into a
+    different part of the curve's decay and again over-estimated noise.
+    The real per-point sigma sidesteps both: it needs no window, no
+    detrending, and no exclusion logic, and it naturally reflects that a
+    bright, high-count q-region carries far less relative noise than a
+    faint tail even a few decades lower in intensity -- confirmed
+    directly: P5Bi5-12's real peak (prominence only ~0.028 in log10, a
+    ~7% relative rise) still comes out ~150x above its local sigma_log,
+    while every noise-level tail candidate across all 9 acceptance
+    samples stayed under a ratio of ~5."""
+    q = np.asarray(q, dtype=float)
+    I = np.asarray(I, dtype=float)
+    if unmasked is None:
+        unmasked = np.ones_like(q, dtype=bool)
+    mask = unmasked & (q >= q_lo) & (q <= q_hi) & (q > 0) & (I > 0) & np.isfinite(q) & np.isfinite(I)
+    if sigma is not None:
+        sigma = np.asarray(sigma, dtype=float)
+        mask = mask & np.isfinite(sigma) & (sigma > 0)
+    if int(mask.sum()) < 8:
+        return None, None
+    qm, Im = q[mask], I[mask]
+    sm = sigma[mask] if sigma is not None else None
+    order = np.argsort(qm)
+    qm, Im = qm[order], Im[order]
+    if sm is not None:
+        sm = sm[order]
+    from scipy.signal import find_peaks
+    n = len(qm)
+    log_I = np.log10(np.clip(Im, 1e-300, None))
+    margin = max(2, int(0.03 * n))
+
+    peaks, props = find_peaks(log_I, prominence=1e-6)
+    interior = (peaks >= margin) & (peaks <= n - 1 - margin)
+    peaks, proms = peaks[interior], props["prominences"][interior]
+    if peaks.size == 0:
+        return None, None
+
+    if sm is not None:
+        sigma_log = sm[peaks] / (Im[peaks] * np.log(10.0))
+        sigma_log = np.maximum(sigma_log, 1e-9)
+    else:
+        # Fallback when no genuine measurement sigma is available (e.g.
+        # synthetic curves): a broad, loosely-smoothed MAD -- coarser
+        # than the sigma-based test, but avoids the self-contamination
+        # failure modes documented above since it uses one wide window
+        # rather than a tight one keyed to each candidate's own location.
+        from scipy.ndimage import uniform_filter1d
+        win = max(15, n // 8)
+        trend = uniform_filter1d(log_I, size=win, mode="nearest")
+        resid = log_I - trend
+        floor = float(np.median(np.abs(resid - np.median(resid)))) * 1.4826
+        sigma_log = np.full(peaks.shape, max(floor, 1e-6))
+
+    ratio = proms / sigma_log
+    valid = ratio >= sig_ratio_min
+    if not valid.any():
+        return None, None
+    best = int(np.argmax(np.where(valid, proms, -np.inf)))
+    return float(qm[peaks[best]]), float(proms[best])
+
+
+def detect_midq_hump(q: np.ndarray, I: np.ndarray, q_lo: float = 2e-2, q_hi: float = 1e-1) -> bool:
+    """v4 §1 MIDQ_HUMP: does the curve show a positive residual bump (data
+    above a provisional smooth power-law fit) in q in [q_lo, q_hi]? Flag
+    only -- this signal is deliberately NOT fit by anything downstream,
+    just recorded for later inspection (a candidate for a future model
+    addition, not something the current component library should force
+    a fit to)."""
+    q = np.asarray(q, dtype=float)
+    I = np.asarray(I, dtype=float)
+    mask = (q >= q_lo) & (q <= q_hi) & (q > 0) & (I > 0) & np.isfinite(q) & np.isfinite(I)
+    if int(mask.sum()) < 8:
+        return False
+    qm, Im = q[mask], I[mask]
+    order = np.argsort(qm)
+    qm, Im = qm[order], Im[order]
+    log_q, log_I = np.log10(qm), np.log10(Im)
+    if np.ptp(log_q) <= 0:
+        return False
+    slope, intercept = np.polyfit(log_q, log_I, 1)
+    resid = log_I - (slope * log_q + intercept)
+    threshold = 0.03
+    run = 0
+    max_run = 0
+    for r in resid:
+        if r > threshold:
+            run += 1
+            max_run = max(max_run, run)
+        else:
+            run = 0
+    return max_run >= max(3, len(resid) // 8)
+
+
+def classify_morphology(q: np.ndarray, I: np.ndarray, unmasked: Optional[np.ndarray] = None,
+                        sigma: Optional[np.ndarray] = None) -> MorphologyResult:
+    """v4 §1: classify a trimmed+masked curve into F (flat pedestal), S
+    (plateau -> knee -> sigmoid drop -> tail), F+P, or S+P (the same
+    shapes with a TS peak riding on top), BEFORE any fitting happens --
+    this replaces treating "F+P" as the only possible shape, the root
+    cause of the 42-sample batch's cascade failures (a knee-shaped S/S+P
+    curve fit with F+P-only presets has no component that can describe
+    its own low-q shape at all). sigma (the curve's own propagated
+    measurement uncertainty) is passed through to detect_peak_q for its
+    significance test when available."""
+    q_peak, prominence = detect_peak_q(q, I, unmasked=unmasked, sigma=sigma)
+    q_knee = detect_knee_q(q, I, exclude_around_peak=q_peak)
+    hump = detect_midq_hump(q, I)
+    has_knee = q_knee is not None
+    has_peak = q_peak is not None
+    if has_knee and has_peak:
+        cls = "S+P"
+    elif has_knee:
+        cls = "S"
+    elif has_peak:
+        cls = "F+P"
+    else:
+        cls = "F"
+    return MorphologyResult(cls=cls, q_knee=q_knee, q_peak=q_peak, peak_prominence=prominence, hump_midq=hump)
+
+
+def propose_windows_from_classifier(q: np.ndarray, I: np.ndarray, morphology: "MorphologyResult",
+                                    q_cut: Optional[float] = None) -> Windows:
+    """v4 §4: per-sample windows derived from Stage A's own q_knee/q_peak,
+    replacing propose_windows' whole-curve _locate_peak-based guess for
+    classes where that guess targets the wrong feature entirely.
+    _locate_peak ALWAYS returns some candidate, even for a genuinely
+    peak-free curve (its Kratky-space fallback locks onto the very knee-
+    transition artifact classify_morphology was built to reject -- see
+    that function's own docstring) -- which for a no-peak S-class sample
+    like P0Bi0 built W_loq/W_peak/W_hiq around a spurious "peak" location,
+    a direct contributor to that sample's Stage-3 cascade failure.
+
+    - W_loq: [q_min, 0.7*q_knee] (S/S+P) or [q_min, 0.5*q_peak] (F+P
+      without a knee); degenerate (empty) when neither exists (class F).
+    - W_peak: [q_peak/2, q_peak*2.2] clipped to [q_min, q_cut]; degenerate
+      when there's no peak.
+    - W_hiq: [max(2.5*q_peak, 1.5*q_knee), q_cut]; falls back to a fixed
+      fraction of q_cut when neither knee nor peak exist (pure class F)."""
+    q = np.asarray(q, dtype=float)
+    qmin = float(np.min(q))
+    qmax = float(np.max(q))
+    q_cut_eff = float(q_cut) if q_cut is not None else qmax
+    q_cut_eff = max(q_cut_eff, qmin * 1.0001)
+    q_knee, q_peak = morphology.q_knee, morphology.q_peak
+
+    if q_peak is not None:
+        lo = max(q_peak / 2.0, qmin)
+        hi = min(q_peak * 2.2, q_cut_eff)
+        w_peak = (lo, hi) if lo < hi else (qmin, q_cut_eff)
+    else:
+        w_peak = (qmin, qmin)
+
+    if q_knee is not None:
+        w_loq = (qmin, max(0.7 * q_knee, qmin * 1.0001))
+    elif q_peak is not None:
+        w_loq = (qmin, max(0.5 * q_peak, qmin * 1.0001))
+    else:
+        w_loq = (qmin, qmin)
+
+    hiq_candidates = []
+    if q_peak is not None:
+        hiq_candidates.append(2.5 * q_peak)
+    if q_knee is not None:
+        hiq_candidates.append(1.5 * q_knee)
+    hiq_lo = max(hiq_candidates) if hiq_candidates else 0.7 * q_cut_eff
+    hiq_lo = min(hiq_lo, 0.95 * q_cut_eff)
+    if hiq_lo >= q_cut_eff:
+        hiq_lo = 0.8 * q_cut_eff
+    w_hiq = (max(hiq_lo, qmin), q_cut_eff)
+    return {"W_peak": w_peak, "W_hiq": w_hiq, "W_loq": w_loq}
+
+
 def propose_windows(q: np.ndarray, I: np.ndarray) -> Windows:
     """Auto-propose W_hiq/W_peak/W_loq (spec §4.1). Always visible/editable
     by the caller — this is a starting point, not a hard requirement."""
@@ -605,6 +889,13 @@ class FitResult:
     # chi2red_global) -- see compute_ts_profile_likelihood_cis's docstring.
     d_ci_stat: Optional[Tuple[float, float]] = None
     xi_ci_stat: Optional[Tuple[float, Optional[float]]] = None
+    # v4 (PRISM_fit_upgrade4_prompt.md) additive fields: Stage A's own
+    # morphology classification and the systematic-error floor.
+    morphology_cls: Optional[str] = None  # "F" | "S" | "F+P" | "S+P"
+    q_knee: Optional[float] = None
+    q_peak: Optional[float] = None
+    hump_midq: bool = False
+    f_systematic: float = 0.0
 
     def to_json(self) -> Dict[str, Any]:
         return {
@@ -626,6 +917,8 @@ class FitResult:
             "xi_unreliable": self.xi_unreliable, "d_unreliable": self.d_unreliable,
             "d_ci_stat": list(self.d_ci_stat) if self.d_ci_stat is not None else None,
             "xi_ci_stat": list(self.xi_ci_stat) if self.xi_ci_stat is not None else None,
+            "morphology_cls": self.morphology_cls, "q_knee": self.q_knee, "q_peak": self.q_peak,
+            "hump_midq": self.hump_midq, "f_systematic": self.f_systematic,
         }
 
     @classmethod
@@ -677,6 +970,8 @@ class FitResult:
             "xi_unidentifiable": self.xi_unidentifiable, "fa_bound": self.fa_bound,
             "d_peak": self.d_peak, "xi_peak": self.xi_peak,
             "xi_unreliable": self.xi_unreliable, "d_unreliable": self.d_unreliable,
+            "class": self.morphology_cls, "q_knee": self.q_knee, "q_peak": self.q_peak,
+            "hump_midq": self.hump_midq, "f": self.f_systematic,
         }
         row.update({f"gof_{k}": v for k, v in self.gof.items()})
         row.update({f"derived_{k}": v for k, v in self.derived.items() if not isinstance(v, dict)})
@@ -788,6 +1083,30 @@ _STAGE1_PL_P_BOUNDS = (2.5, 4.3)  # v2 §4: tightened from power_law's own [1,4.
 # optimizer wander there is usually degenerate with bg_C, not a real fit.
 
 
+def _bg_c_plateau_bounds(q: np.ndarray, I: np.ndarray) -> Tuple[float, float]:
+    """v4 §3: bg_C bounds = [0.2x, 5x] the median of I over the last
+    half-decade of q in the data actually passed in (the W_hiq-masked
+    array, i.e. the high-q plateau region up to q_cut). Fixes the
+    confirmed P0Bi0 cascade bug: an UNBOUNDED flat_background (its own
+    component default is [0, inf)) let the Stage-1 optimizer land on
+    bg_C=1e-12 -- 14 decades below the actual data -- which every later
+    stage then inherited as its background floor. A data-driven bound
+    tied to the plateau's own scale makes that value structurally
+    unreachable regardless of what local minimum the optimizer wanders
+    into."""
+    if q.size == 0:
+        return (0.0, np.inf)
+    qmax = float(np.max(q))
+    half_decade_lo = qmax / (10.0 ** 0.5)
+    sel = q >= half_decade_lo
+    if int(np.sum(sel)) < 3:
+        sel = np.ones_like(q, dtype=bool)
+    med = float(np.median(I[sel]))
+    if not math.isfinite(med) or med <= 0:
+        return (0.0, np.inf)
+    return (0.2 * med, 5.0 * med)
+
+
 def _stage1_bg(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows,
                sample_id: str = "stage1", n_tries: int = 3,
                residual_mode: str = "weighted_linear") -> Dict[str, Any]:
@@ -824,7 +1143,8 @@ def _stage1_bg(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows
     if int(mask.sum()) < 5:
         mask = np.ones_like(q, dtype=bool)  # degenerate window: fall back to everything
     seeds = model.seed(q[mask], I[mask], windows)
-    bound_overrides = {"pl_p": _STAGE1_PL_P_BOUNDS}
+    bg_c_bounds = _bg_c_plateau_bounds(q[mask], I[mask])
+    bound_overrides = {"pl_p": _STAGE1_PL_P_BOUNDS, "bg_C": bg_c_bounds}
     rng = np.random.default_rng(_seed_from_sample_id(sample_id + ":stage1"))
     best_result = None
     for _ in range(max(n_tries, 1)):
@@ -845,7 +1165,8 @@ def _stage1_bg(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows
     span = pl_p.max - pl_p.min
     if span > 0 and (abs(pl_p.value - pl_p.min) <= 0.01 * span or abs(pl_p.value - pl_p.max) <= 0.01 * span):
         retry_params = model.to_lmfit_parameters(
-            seed_values={"bg_C": best_result.params["bg_C"].value, "pl_B": 1e-12, "pl_p": 4.0})
+            seed_values={"bg_C": best_result.params["bg_C"].value, "pl_B": 1e-12, "pl_p": 4.0},
+            bound_overrides=bound_overrides)
         model.fix(retry_params, "pl_B", 1e-12)
         model.fix(retry_params, "pl_p", 4.0)
         try:
@@ -855,11 +1176,13 @@ def _stage1_bg(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows
             pruned.append("power_law")
         except Exception:
             pass
-    return {"model": model, "result": best_result, "mask": mask, "seeds": seeds, "pruned": pruned}
+    return {"model": model, "result": best_result, "mask": mask, "seeds": seeds, "pruned": pruned,
+           "bg_c_bounds": bg_c_bounds}
 
 
 def _stage2_add_ts(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows,
-                   stage1: Dict[str, Any], residual_mode: str = "weighted_linear") -> Optional[Dict[str, Any]]:
+                   stage1: Dict[str, Any], residual_mode: str = "weighted_linear",
+                   bg_c_bounds: Optional[Tuple[float, float]] = None) -> Optional[Dict[str, Any]]:
     bg_params = stage1["result"].params
     model = build_composite(["flat_background", "power_law", "teubner_strey"])
     mask = _mask_for(q, windows, ("W_peak", "W_hiq"))
@@ -875,7 +1198,8 @@ def _stage2_add_ts(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Win
 
     seed_values = {"bg_C": bg_params["bg_C"].value, "pl_B": bg_params["pl_B"].value,
                   "pl_p": bg_params["pl_p"].value, **{f"ts_{k}": v for k, v in ts_seed.items()}}
-    params = model.to_lmfit_parameters(seed_values=seed_values)
+    bound_overrides = {"bg_C": bg_c_bounds} if bg_c_bounds is not None else None
+    params = model.to_lmfit_parameters(seed_values=seed_values, bound_overrides=bound_overrides)
     model.fix(params, "pl_B", bg_params["pl_B"].value)
     model.fix(params, "pl_p", bg_params["pl_p"].value)
     # narrow ts_d's bounds to the active window (spec §1.7): d in [2pi/q_hi, 2pi/q_lo]
@@ -924,23 +1248,137 @@ def ts_guardrail_ok(result: Any, sigma_local: np.ndarray, windows: Windows) -> T
     return True, ""
 
 
+def fit_systematic_floor(model: "CompositeModel", result_params: Any, q: np.ndarray, I: np.ndarray,
+                         sigma: np.ndarray, windows: Windows, f_max: float = 0.2) -> float:
+    """v4 §5: systematic-error floor. sigma_eff^2 = sigma^2 + (f*I)^2 (the
+    `s`-calibrated sigma is already baked into `sigma` by the time this
+    runs -- v3 §8.3's plateau calibration). Solves for f in [0, f_max]
+    such that chi2red (plain mean of normalized squared residuals, same
+    convention as _window_chi2red) reaches 1.0 on W_hiq UNION W_loq
+    EXCLUDING W_peak -- the series-wide "measures precision only"
+    problem this section exists for is a smooth ~5-10% systematics
+    contribution the propagated sigma doesn't capture, which should show
+    up on the featureless windows, not the peak itself (where genuine
+    model mismatch, not measurement systematics, is the expected and
+    interesting signal). Returns 0.0 when the region is already <=1 at
+    f=0 (no floor needed) or when there are too few points (<5) to judge;
+    returns f_max unchanged (not clamped-and-silent) when even f_max
+    can't reach chi2red=1 -- the caller's own f>0.12 flag surfaces this
+    as data_systematics_high regardless of which branch produced it."""
+    mask = (_mask_for(q, windows, ("W_hiq", "W_loq"))) & (~_mask_for(q, windows, ("W_peak",)))
+    if int(mask.sum()) < 5:
+        return 0.0
+    total = model.eval(q[mask], result_params)
+    resid = I[mask] - total
+    sig = sigma[mask]
+    Ivals = I[mask]
+
+    def _chi2red_minus_1(f: float) -> float:
+        sigma_eff = np.sqrt(sig ** 2 + (f * Ivals) ** 2)
+        return float(np.mean((resid / sigma_eff) ** 2)) - 1.0
+
+    if _chi2red_minus_1(0.0) <= 0.0:
+        return 0.0
+    if _chi2red_minus_1(f_max) > 0.0:
+        return f_max
+    from scipy.optimize import brentq
+    return float(brentq(_chi2red_minus_1, 0.0, f_max))
+
+
+def ts_window_local_delta_bic(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows,
+                              bg_params: Any, ts_model: "CompositeModel", ts_result: Any,
+                              residual_mode: str = "weighted_linear") -> Optional[float]:
+    """v4 §2: TS acceptance decided by residual improvement in W_peak
+    ONLY (delta-BIC computed on W_peak points), not by global BIC --
+    fixes the diagnosed P5Bi5-12 false negative, where ts_guardrail_ok's
+    global-significance check (S vs the WHOLE curve's typical sigma)
+    failed even though the peak is clearly visible locally, because the
+    curve's global chi2red is poisoned by unmodeled low-q structure
+    elsewhere entirely outside W_peak. Compares "bg(+pl) only" against
+    "bg(+pl)+TS", both evaluated ONLY on the W_peak-masked points, using
+    the SAME weighted/log10 statistic as everywhere else in this module
+    (v3's one-statistic-everywhere consistency rule). Returns
+    bic_without - bic_with (positive favors TS); None when W_peak has
+    too few points to judge (<5, the same bar used throughout this
+    module for "insufficient window")."""
+    mask = _mask_for(q, windows, ("W_peak",))
+    n = int(mask.sum())
+    if n < 5:
+        return None
+    q_w, I_w = q[mask], I[mask]
+    bg_only = (bg_params["bg_C"].value
+              + bg_params["pl_B"].value * np.power(np.clip(q_w, 1e-300, None), -bg_params["pl_p"].value))
+    ts_values = {name: p.value for name, p in ts_result.params.items()}
+    ts_total = ts_model.eval(q_w, ts_values)
+    if residual_mode == "log10":
+        r_without = np.log10(np.clip(bg_only, 1e-300, None)) - np.log10(np.clip(I_w, 1e-300, None))
+        r_with = np.log10(np.clip(ts_total, 1e-300, None)) - np.log10(np.clip(I_w, 1e-300, None))
+        chi2_without = float(np.sum(r_without ** 2))
+        chi2_with = float(np.sum(r_with ** 2))
+    else:
+        sigma_w = sigma[mask]
+        chi2_without = float(np.sum(((I_w - bg_only) / sigma_w) ** 2))
+        chi2_with = float(np.sum(((I_w - ts_total) / sigma_w) ** 2))
+    k_ts = 3  # ts_S, ts_d, ts_xi -- the only parameters TS adds relative to bg(+pl) alone
+    bic_without = chi2_without
+    bic_with = chi2_with + k_ts * math.log(n)
+    return bic_without - bic_with
+
+
 def _stage3_add_gp(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows,
                    prev: Dict[str, Any], had_ts: bool,
-                   residual_mode: str = "weighted_linear") -> Optional[Dict[str, Any]]:
+                   residual_mode: str = "weighted_linear",
+                   bg_c_bounds: Optional[Tuple[float, float]] = None,
+                   q_knee: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """v4 §2: gp_p bounds are [3.0, 4.3] (class-anchored, not the older
+    [2.5, 4.3]). When q_knee is available (Stage A's own classifier), Rg
+    is seeded from the SAME q1=(1/Rg)*sqrt(3*p/2) relationship this
+    module's own GuinierPorod._q1_D already uses at fit time (Hammouda's
+    Guinier-Porod crossover), evaluated at the seed-time default p=4.0:
+    Rg_seed = sqrt(6)/q_knee ~= 2.449/q_knee. The ticket's own text
+    proposes "1.9/q_knee" but flags it "[[cross-check against Hammouda
+    q1]]" as unverified; sqrt(6) (not 1.9) is what falls out of solving
+    this component's own crossover formula for Rg at p=4, so it's used
+    here instead, self-consistent with how gp_p is actually fit."""
     prev_names = ["flat_background", "power_law"] + (["teubner_strey"] if had_ts else [])
     model = build_composite(prev_names + ["guinier_porod"])
     mask = _mask_for(q, windows, ("W_loq",))
-    if int(mask.sum()) < 5:
+    min_pts = 8  # GP has 3 free params (G, Rg, p) -- needs more than the
+    # generic 5-point "insufficient window" bar used for 2-parameter fits
+    # elsewhere in this file, or an under-determined fit can hit a wild,
+    # overfit local optimum that matches its handful of in-window points
+    # exactly but diverges badly everywhere else (found on the real
+    # P5Bi0 profile: a 5-point GP fit reached rms_log=5.7, far worse
+    # than plain BG, rather than failing outright).
+    if int(mask.sum()) < min_pts and q_knee is not None and q_knee > 0:
+        # v4 §4: W_loq (the pre-knee-only flat region) is derived as
+        # [q_min, 0.7*q_knee] -- at this instrument's real point spacing
+        # that can be only 1-2 points wide for a knee sitting close to
+        # q_min (confirmed on the real P0Bi0 profile), too few to
+        # constrain a GP fit at all despite the classifier having
+        # already confirmed a genuine knee exists. Widen to include the
+        # knee TRANSITION itself (up to W_hiq's own low edge, or a fixed
+        # multiple of q_knee, whichever is smaller) rather than skip a
+        # class-anchored component the classifier says belongs here --
+        # Guinier-Porod's own p/Rg trade-off needs the steep side of the
+        # crossover to be identifiable anyway, not just the flat part.
+        hiq_lo = windows.get("W_hiq", (float(np.max(q)), float(np.max(q))))[0]
+        wide_hi = min(hiq_lo, 3.0 * q_knee)
+        mask = (q >= float(np.min(q))) & (q <= wide_hi)
+    if int(mask.sum()) < min_pts:
         return None
     frozen = prev["result"].params
     seed_values = {name: frozen[name].value for name in frozen}
     gp_seed = model.components[-1][1].seed(q[mask], I[mask], windows)
+    if q_knee is not None and q_knee > 0:
+        gp_seed["Rg"] = math.sqrt(6.0) / q_knee
     seed_values.update({f"gp_{k}": v for k, v in gp_seed.items()})
-    params = model.to_lmfit_parameters(seed_values=seed_values)
+    bound_overrides = {"bg_C": bg_c_bounds} if bg_c_bounds is not None else {}
+    params = model.to_lmfit_parameters(seed_values=seed_values, bound_overrides=bound_overrides)
     for name in frozen:
         if name != "bg_C":
             model.fix(params, name, frozen[name].value)
-    params["gp_p"].set(min=2.5, max=4.3)
+    params["gp_p"].set(min=3.0, max=4.3)
     if not (params["gp_p"].min < params["gp_p"].value < params["gp_p"].max):
         params["gp_p"].set(value=4.0)
     result = model.fit(q[mask], I[mask], sigma=sigma[mask], params=params, residual_mode=residual_mode)
@@ -990,7 +1428,8 @@ def detect_guinier_knee(q: np.ndarray, I: np.ndarray, windows: Windows) -> bool:
 
 def _stage3_add_pl2(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows,
                     prev: Dict[str, Any], had_ts: bool,
-                    residual_mode: str = "weighted_linear") -> Optional[Dict[str, Any]]:
+                    residual_mode: str = "weighted_linear",
+                    bg_c_bounds: Optional[Tuple[float, float]] = None) -> Optional[Dict[str, Any]]:
     """The no-knee counterpart of _stage3_add_gp (v2 §3): fits power_law2
     instead of guinier_porod for the low-q role.
 
@@ -1031,7 +1470,8 @@ def _stage3_add_pl2(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Wi
     pl2_seed = model.components[-1][1].seed(q[mask], I[mask], windows)
     pl2_seed["p2"] = 3.7
     seed_values.update({f"pl2_{k}": v for k, v in pl2_seed.items()})
-    params = model.to_lmfit_parameters(seed_values=seed_values)
+    bound_overrides = {"bg_C": bg_c_bounds} if bg_c_bounds is not None else {}
+    params = model.to_lmfit_parameters(seed_values=seed_values, bound_overrides=bound_overrides)
     for name in frozen:
         if name != "bg_C":
             model.fix(params, name, frozen[name].value)
@@ -1043,14 +1483,32 @@ _SCALE_PARAM_SUFFIXES = ("_C", "_B", "_B2", "_S", "_G", "_A", "_C_lorentz")
 _LENGTH_PARAM_SUFFIXES = ("_d", "_xi", "_Rg")
 
 
-def _widen_bounds_for_global(model: CompositeModel, best_values: Dict[str, float]) -> Dict[str, Tuple[float, float]]:
+def _widen_bounds_for_global(model: CompositeModel, best_values: Dict[str, float],
+                             hard_overrides: Optional[Dict[str, Tuple[float, float]]] = None
+                             ) -> Dict[str, Tuple[float, float]]:
     """Spec §4.2 Stage 4: bounds = best ± (x/÷3 for scales, ±40% for
     d/xi/Rg); p (and power_law2's p2) stays within its component's own
-    default bound."""
+    default bound.
+
+    `hard_overrides` (v4 §3) takes precedence over ALL of the above for
+    the named parameter -- specifically bg_C's plateau-derived bound.
+    Without this, the x/÷3-from-best scheme falls back to the
+    component's own UNBOUNDED default the moment best_values["bg_C"]
+    is small (<=1e-8, the "too close to zero for a multiplicative
+    bound to mean anything" guard below) -- exactly the state Stage 3
+    can hand off after its own low-q component absorbs most of the
+    background, which then lets Stage 4's global release re-discover
+    the same unbounded-collapse failure mode Stage 1's own bound was
+    built to prevent (confirmed on the real P0Bi0 profile: Stage 1
+    alone lands bg_C safely inside its plateau bound, but Stage 4's
+    global refit re-collapsed it to ~5e-18 before this fix)."""
     overrides: Dict[str, Tuple[float, float]] = {}
     for prefix, comp in model.components:
         for p in comp.params():
             full = prefix + p.name
+            if hard_overrides and full in hard_overrides:
+                overrides[full] = hard_overrides[full]
+                continue
             best = best_values.get(full, p.value)
             if p.name in ("p", "p2") and not p.name.endswith(("_d", "xi")):
                 overrides[full] = (p.min, p.max)
@@ -1079,7 +1537,8 @@ def _widen_bounds_for_global(model: CompositeModel, best_values: Dict[str, float
 def _stage4_global(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, model: CompositeModel,
                    best_values: Dict[str, float], sample_id: str, multistart_n: int,
                    residual_mode: str = "weighted_linear",
-                   fixed_params: Optional[List[str]] = None) -> Dict[str, Any]:
+                   fixed_params: Optional[List[str]] = None,
+                   bg_c_bounds: Optional[Tuple[float, float]] = None) -> Dict[str, Any]:
     """`fixed_params` (v2 §4) keeps Stage 1's prune-and-refit decision
     intact through the global release: without this, releasing EVERY
     parameter here would silently un-prune power_law right back (its
@@ -1087,8 +1546,13 @@ def _stage4_global(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, model: Compo
     whole point of pruning it in the first place. Fixed parameters are
     held at their EXACT best_value (never perturbed) across every
     multistart try, matching how lmfit itself ignores a non-varying
-    parameter's "value" for optimization purposes."""
-    bound_overrides = _widen_bounds_for_global(model, best_values)
+    parameter's "value" for optimization purposes.
+
+    `bg_c_bounds` (v4 §3) is passed as a hard override to
+    _widen_bounds_for_global so bg_C's plateau-derived bound survives
+    this stage's own bound-widening too, not just Stage 1's fit."""
+    hard_overrides = {"bg_C": bg_c_bounds} if bg_c_bounds is not None else None
+    bound_overrides = _widen_bounds_for_global(model, best_values, hard_overrides=hard_overrides)
     fixed_set = set(fixed_params or [])
     vary_overrides = {name: False for name in fixed_set}
     rng = np.random.default_rng(_seed_from_sample_id(sample_id))
@@ -1315,7 +1779,8 @@ def visual_equivalence_ok(model: CompositeModel, result: Any, q: np.ndarray, I: 
 def _fit_full_range(component_names: List[str], q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
                     sample_id: str, multistart_n: int,
                     residual_mode: str = "weighted_linear",
-                    windows: Optional[Windows] = None) -> Dict[str, Any]:
+                    windows: Optional[Windows] = None,
+                    bg_c_bounds: Optional[Tuple[float, float]] = None) -> Dict[str, Any]:
     """`windows` matters for any TS/GP/PL2-containing candidate: their
     generic .seed() fallbacks locate the peak/low-q region from the WHOLE
     curve when no windows are given, which for a real SAXS profile (a huge
@@ -1325,7 +1790,7 @@ def _fit_full_range(component_names: List[str], q: np.ndarray, I: np.ndarray, si
     model = build_composite(component_names)
     seeds = model.seed(q, I, windows)
     return _stage4_global(q, I, sigma, model, seeds, sample_id + ":" + "_".join(component_names), multistart_n,
-                          residual_mode=residual_mode)
+                          residual_mode=residual_mode, bg_c_bounds=bg_c_bounds)
 
 
 def _walk_ladder(order: List[str], bics: Dict[str, float], aics: Dict[str, float]) -> Tuple[str, List[Dict[str, Any]]]:
@@ -1353,6 +1818,7 @@ def select_best_preset(
     assembled_model: CompositeModel, assembled_result: Any,
     sample_id: str, multistart_n: int, residual_mode: str = "weighted_linear",
     had_ts: bool = False, has_knee: bool = False, windows: Optional[Windows] = None,
+    bg_c_bounds: Optional[Tuple[float, float]] = None,
 ) -> Dict[str, Any]:
     """Spec §4.2 Stage 6, extended per v2 §3 and v3 ADDENDUM §7: the ladder
     is BG -> BG_DAB -> BG_TS -> BG_TS_OZ -> BG_TS_PL2 -> BG_TS_GP, where
@@ -1430,7 +1896,7 @@ def select_best_preset(
         if name in ladder:  # already tried and guardrail/visual-equivalence-rejected
             return False
         fit = _fit_full_range(component_names, q, I, sigma, sample_id, multistart_n,
-                              residual_mode=residual_mode, windows=windows)
+                              residual_mode=residual_mode, windows=windows, bg_c_bounds=bg_c_bounds)
         result = fit["result"]
         if not _passes_guardrail(name, component_names, fit["model"], result):
             return False
@@ -1884,12 +2350,31 @@ def fit_staged(
     q, I, sigma, excluded_mask = _apply_mask_regions(q, I, sigma, active_mask_regions)
 
     cls_guess, prominence = guess_class(q, I)
-    active_windows = dict(propose_windows(q, I))
+    # v4 §1/§4: Stage A classifies morphology BEFORE any fitting, using
+    # the curve's own genuine measurement sigma for peak significance
+    # (see detect_peak_q); windows are then derived from q_knee/q_peak
+    # rather than propose_windows' whole-curve _locate_peak-based guess,
+    # which always finds SOME candidate even on a genuinely peak-free
+    # curve (its Kratky-space fallback locks onto the same knee-artifact
+    # classify_morphology exists to reject) -- confirmed to build
+    # nonsensical windows for a no-peak S-class sample like P0Bi0.
+    # detect_peak_q's significance test needs a genuinely trustworthy
+    # per-point sigma -- an ESTIMATED fallback (Poisson-like or
+    # detrended-MAD) is calibrated well enough for aggregate chi2
+    # weighting but not necessarily for this ratio-of-~5-to-hundreds
+    # significance test on a single narrow feature, so only a real
+    # measured/propagated sigma is passed through; detect_peak_q falls
+    # back to its own coarse noise estimate otherwise.
+    peak_sigma = sigma if hygiene.sigma_model == "measured" else None
+    morphology = classify_morphology(q, I, sigma=peak_sigma)
+    active_windows = dict(propose_windows_from_classifier(q, I, morphology, q_cut=q_cut))
     if windows:
         active_windows.update(windows)  # user overrides win
 
     stages: Dict[str, Any] = {
         "stage0": {"class_guess": cls_guess, "prominence": prominence,
+                  "morphology_cls": morphology.cls, "q_knee": morphology.q_knee,
+                  "q_peak": morphology.q_peak, "hump_midq": morphology.hump_midq,
                   "n_trimmed_edge": hygiene.n_trimmed_edge,
                   "n_dropped_nonfinite": hygiene.n_dropped_nonfinite,
                   "n_points": int(q.size), "q_cut": q_cut,
@@ -1928,7 +2413,15 @@ def fit_staged(
             stage1 = _stage1_bg(q, I, sigma, active_windows, sample_id=sample_id, residual_mode=residual_mode)
     stages["stage1"] = {"redchi": float(stage1["result"].redchi), "chi2red_plateau_raw": chi2red_plateau,
                         "mask_n": int(stage1["mask"].sum()),
-                        "pruned": stage1["pruned"], "sigma_scale": sigma_scale}
+                        "pruned": stage1["pruned"], "sigma_scale": sigma_scale,
+                        "bg_c_bounds": list(stage1["bg_c_bounds"])}
+    # v4 §3: bg_C's plateau-derived bound is threaded through every later
+    # stage that re-fits it as a free parameter (Stage 2/3/4 and the
+    # ladder's own candidate fits) -- Stage 1 alone landing safely inside
+    # this bound isn't enough on its own; the diagnosed P0Bi0 cascade
+    # bug re-appeared at Stage 4's global release when only Stage 1 had
+    # the bound applied.
+    bg_c_bounds = tuple(stage1["bg_c_bounds"])
     current_model, current_result = stage1["model"], stage1["result"]
     preset_names = ["flat_background", "power_law"]
     had_ts = False
@@ -1936,14 +2429,28 @@ def fit_staged(
     if pruned:
         flags.append(f"pl_pruned:{','.join(pruned)}")
 
-    stage2 = _stage2_add_ts(q, I, sigma, active_windows, stage1, residual_mode=residual_mode)
+    stage2 = _stage2_add_ts(q, I, sigma, active_windows, stage1, residual_mode=residual_mode,
+                            bg_c_bounds=bg_c_bounds)
     if stage2 is not None:
         ok, reason = ts_guardrail_ok(stage2["result"], sigma[stage2["mask"]], active_windows)
-        if ok and cls_guess == "a":
+        if not ok and reason == "ts_not_significant":
+            # v4 §2: a global-significance rejection can be a false
+            # negative when the curve's overall chi2red is poisoned by
+            # unmodeled structure OUTSIDE W_peak (the diagnosed P5Bi5-12
+            # case) -- check whether TS meaningfully improves the fit
+            # WITHIN W_peak alone before giving up on it.
+            delta_bic_local = ts_window_local_delta_bic(
+                q, I, sigma, active_windows, stage1["result"].params,
+                stage2["model"], stage2["result"], residual_mode=residual_mode)
+            if delta_bic_local is not None and delta_bic_local > 10.0:
+                ok, reason = True, f"ts_accepted_local_delta_bic:{delta_bic_local:.1f}"
+        if ok and cls_guess == "a" and morphology.cls not in ("F+P", "S+P"):
             # Stage 0's class guess is itself now prominence-based via
             # scipy.signal.find_peaks (robust to noise-driven false
-            # positives) — an extra backstop alongside the guardrail's own
-            # significance/q_max-in-window checks, not a replacement.
+            # positives), and Stage A's own morphology classifier agrees
+            # no peak was found -- an extra backstop alongside the
+            # guardrail's own significance/q_max-in-window checks (and
+            # the local-delta-BIC override above), not a replacement.
             ok, reason = False, "class_guess_featureless"
         stages["stage2"] = {"redchi": float(stage2["result"].redchi), "mask_n": int(stage2["mask"].sum()),
                             "guardrail_ok": ok, "guardrail_reason": reason}
@@ -1957,14 +2464,23 @@ def fit_staged(
         stages["stage2"] = {"skipped": "insufficient_points_in_window"}
         flags.append("ts_skipped_insufficient_window")
 
-    has_knee = detect_guinier_knee(q, I, active_windows)
+    # v4 §2/§4: Stage A's own q_knee (fixed-range, runs before windows
+    # exist) decides the low-q branch, replacing detect_guinier_knee's
+    # W_loq-dependent check -- W_loq itself is now BUILT from q_knee (see
+    # propose_windows_from_classifier), so gating on a window-dependent
+    # re-detection here would be circular for a peak-free S-class curve,
+    # and detect_guinier_knee's OWN window came from the old, generally
+    # peak-artifact-prone propose_windows for exactly the samples (no
+    # peak, no reference W_peak edge) where that circularity bites.
+    has_knee = morphology.q_knee is not None
     if has_knee:
         stage3 = _stage3_add_gp(q, I, sigma, active_windows, {"result": current_result}, had_ts,
-                                residual_mode=residual_mode)
+                                residual_mode=residual_mode, bg_c_bounds=bg_c_bounds,
+                                q_knee=morphology.q_knee)
         stage3_component = "guinier_porod"
     else:
         stage3 = _stage3_add_pl2(q, I, sigma, active_windows, {"result": current_result}, had_ts,
-                                 residual_mode=residual_mode)
+                                 residual_mode=residual_mode, bg_c_bounds=bg_c_bounds)
         stage3_component = "power_law2"
     if stage3 is not None:
         stages["stage3"] = {"redchi": float(stage3["result"].redchi), "mask_n": int(stage3["mask"].sum()),
@@ -1988,12 +2504,15 @@ def fit_staged(
             fixed_params.append("pl2_p2")
             flags.append("pl2_p2_frozen")
     stage4 = _stage4_global(q, I, sigma, current_model, best_values, sample_id, multistart_n,
-                            residual_mode=residual_mode, fixed_params=fixed_params or None)
+                            residual_mode=residual_mode, fixed_params=fixed_params or None,
+                            bg_c_bounds=bg_c_bounds)
     stages["stage4"] = {"redchi": float(stage4["result"].redchi), "n_multistart": multistart_n}
     assembled_model, assembled_result = stage4["model"], stage4["result"]
 
     assembled_name = {
         ("flat_background", "power_law"): "BG",
+        ("flat_background", "power_law", "guinier_porod"): "BG_GP",
+        ("flat_background", "power_law", "power_law2"): "BG_PL2",
         ("flat_background", "power_law", "teubner_strey"): "BG_TS",
         ("flat_background", "power_law", "teubner_strey", "power_law2"): "BG_TS_PL2",
         ("flat_background", "power_law", "teubner_strey", "guinier_porod"): "BG_TS_GP",
@@ -2005,14 +2524,16 @@ def fit_staged(
         else:
             forced_names = PRESETS.get(force_preset, force_preset.split("+"))
             forced_fit = _fit_full_range(forced_names, q, I, sigma, sample_id, multistart_n,
-                                         residual_mode=residual_mode, windows=active_windows)
+                                         residual_mode=residual_mode, windows=active_windows,
+                                         bg_c_bounds=bg_c_bounds)
             final_model, final_result = forced_fit["model"], forced_fit["result"]
         preset_chosen = force_preset
         stages["stage6"] = {"forced": force_preset}
     else:
         stage6 = select_best_preset(q, I, sigma, assembled_name, assembled_model, assembled_result,
                                     sample_id, multistart_n, residual_mode=residual_mode,
-                                    had_ts=had_ts, has_knee=has_knee, windows=active_windows)
+                                    had_ts=had_ts, has_knee=has_knee, windows=active_windows,
+                                    bg_c_bounds=bg_c_bounds)
         stages["stage6"] = stage6["ladder"]
         preset_chosen = stage6["chosen"]
         final_model, final_result = stage6["model"], stage6["result"]
@@ -2025,8 +2546,20 @@ def fit_staged(
     if no_peak and had_ts:
         flags.append("no_peak")  # TS was fit through stages 1-4 but the ladder rejected it on BIC
 
-    diagnostics = compute_diagnostics(final_model, final_result, q, I, active_windows, sigma=sigma)
+    # v4 §5: systematic-error floor, fit against the FINAL chosen model --
+    # makes chi2red meaningful series-wide (propagated sigma measures
+    # counting precision only; real curves here carry ~5-10% smooth
+    # systematics the sigma column never captures). sigma_eff feeds EVERY
+    # downstream chi2/AIC/BIC/profile-CI computation (v3's one-statistic-
+    # everywhere consistency rule, now extended to include this term).
+    f_systematic = fit_systematic_floor(final_model, final_result.params, q, I, sigma, active_windows)
+    sigma_eff = np.sqrt(sigma ** 2 + (f_systematic * I) ** 2)
+    if f_systematic > 0.12:
+        flags.append(f"data_systematics_high:f={f_systematic:.3f}")
+
+    diagnostics = compute_diagnostics(final_model, final_result, q, I, active_windows, sigma=sigma_eff)
     stages["stage5"] = diagnostics
+    stages["stage5"]["f_systematic"] = f_systematic
     flags.extend(diagnostics["flags"])
 
     # v3 §5: at_bounds_suggest_simpler_preset now requires the simpler
@@ -2054,7 +2587,7 @@ def fit_staged(
     d_peak = xi_peak = None
     d_unreliable = xi_unreliable = False
     if not no_peak:
-        ci_info = compute_ts_profile_likelihood_cis(final_model, final_result, q, I, sigma,
+        ci_info = compute_ts_profile_likelihood_cis(final_model, final_result, q, I, sigma_eff,
                                                     residual_mode=residual_mode)
         # d_ci/xi_ci (tuples) are NOT duplicated into `stages` here -- they
         # live solely on FitResult.d_ci/xi_ci (the single source of truth,
@@ -2065,7 +2598,7 @@ def fit_staged(
         if ci_info.get("xi_unidentifiable"):
             flags.append("xi_unidentifiable")
 
-        stage2b = stage2b_peak_crosscheck(final_model, final_result, q, I, sigma, active_windows,
+        stage2b = stage2b_peak_crosscheck(final_model, final_result, q, I, sigma_eff, active_windows,
                                           residual_mode=residual_mode)
         if stage2b is not None:
             d_global = float(final_result.params["ts_d"].value)
@@ -2095,4 +2628,6 @@ def fit_staged(
         xi_unidentifiable=bool(ci_info.get("xi_unidentifiable", False)), fa_bound=ci_info.get("fa_bound"),
         d_peak=d_peak, xi_peak=xi_peak, xi_unreliable=xi_unreliable, d_unreliable=d_unreliable,
         d_ci_stat=ci_info.get("d_ci_stat"), xi_ci_stat=ci_info.get("xi_ci_stat"),
+        morphology_cls=morphology.cls, q_knee=morphology.q_knee, q_peak=morphology.q_peak,
+        hump_midq=morphology.hump_midq, f_systematic=f_systematic,
     )
