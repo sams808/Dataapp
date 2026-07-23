@@ -600,6 +600,11 @@ class FitResult:
     xi_peak: Optional[float] = None
     xi_unreliable: bool = False
     d_unreliable: bool = False
+    # consistency-fix additive fields: model-conditional ("stat", Delta-
+    # chi2<=3.841 flat) CIs alongside the headline d_ci/xi_ci (rescaled by
+    # chi2red_global) -- see compute_ts_profile_likelihood_cis's docstring.
+    d_ci_stat: Optional[Tuple[float, float]] = None
+    xi_ci_stat: Optional[Tuple[float, Optional[float]]] = None
 
     def to_json(self) -> Dict[str, Any]:
         return {
@@ -619,6 +624,8 @@ class FitResult:
             "xi_unidentifiable": self.xi_unidentifiable, "fa_bound": self.fa_bound,
             "d_peak": self.d_peak, "xi_peak": self.xi_peak,
             "xi_unreliable": self.xi_unreliable, "d_unreliable": self.d_unreliable,
+            "d_ci_stat": list(self.d_ci_stat) if self.d_ci_stat is not None else None,
+            "xi_ci_stat": list(self.xi_ci_stat) if self.xi_ci_stat is not None else None,
         }
 
     @classmethod
@@ -631,6 +638,10 @@ class FitResult:
             payload["d_ci"] = tuple(payload["d_ci"])
         if payload.get("xi_ci") is not None:
             payload["xi_ci"] = tuple(payload["xi_ci"])
+        if payload.get("d_ci_stat") is not None:
+            payload["d_ci_stat"] = tuple(payload["d_ci_stat"])
+        if payload.get("xi_ci_stat") is not None:
+            payload["xi_ci_stat"] = tuple(payload["xi_ci_stat"])
         return cls(**payload)
 
     def save_json(self, path: str) -> None:
@@ -659,6 +670,10 @@ class FitResult:
             "d_ci_hi": self.d_ci[1] if self.d_ci is not None else None,
             "xi_ci_lo": self.xi_ci[0] if self.xi_ci is not None else None,
             "xi_ci_hi": self.xi_ci[1] if self.xi_ci is not None else None,
+            "d_ci_stat_lo": self.d_ci_stat[0] if self.d_ci_stat is not None else None,
+            "d_ci_stat_hi": self.d_ci_stat[1] if self.d_ci_stat is not None else None,
+            "xi_ci_stat_lo": self.xi_ci_stat[0] if self.xi_ci_stat is not None else None,
+            "xi_ci_stat_hi": self.xi_ci_stat[1] if self.xi_ci_stat is not None else None,
             "xi_unidentifiable": self.xi_unidentifiable, "fa_bound": self.fa_bound,
             "d_peak": self.d_peak, "xi_peak": self.xi_peak,
             "xi_unreliable": self.xi_unreliable, "d_unreliable": self.d_unreliable,
@@ -669,15 +684,26 @@ class FitResult:
 
 
 def _params_to_dict(lmfit_params: Any, chi2red: Optional[float] = None) -> Dict[str, Dict[str, Any]]:
-    """`chi2red` triggers the v2 §1 stderr rescaling (by sqrt(chi2red) when
-    chi2red>1): lmfit's own covariance-based stderr assumes the weighting
-    is correctly calibrated, which chi2red>>1 is direct evidence against —
-    the standard "scale the covariance by the reduced chi-square" fix."""
-    scale = math.sqrt(chi2red) if (chi2red is not None and chi2red > 1) else 1.0
+    """v3 consistency fix: `chi2red` is accepted (kept for call-site/API
+    compatibility) but no longer used to rescale stderr. v2 §1 added a
+    manual `stderr *= sqrt(chi2red)` here on the (incorrect) assumption
+    that lmfit's own covariance-based stderr was NOT chi2red-corrected --
+    but every `CompositeModel.fit()` call in this codebase uses lmfit's
+    default `scale_covar=True`, which ALREADY multiplies the covariance
+    matrix (hence stderr) by redchi before reporting it. Doing it again
+    here silently inflated every reported stderr by an EXTRA factor of
+    sqrt(chi2red) on top of lmfit's own correction (confirmed directly:
+    a controlled lmfit reproduction with scale_covar=True vs False shows
+    the stderr ratio is exactly sqrt(redchi) -- the v2 code then applied
+    that same factor a second time). Caught via a real-data cross-check:
+    the real P5Bi8-12 fit's own ts_xi stderr (2926 Å) was ~sqrt(chi2red)
+    times larger than the properly-scaled profile-likelihood CI half-
+    width would predict. `p.stderr` is now reported as lmfit gives it --
+    already the statistically standard, correctly-scaled value."""
     out = {}
     for name in lmfit_params:
         p = lmfit_params[name]
-        stderr = None if p.stderr is None else float(p.stderr) * scale
+        stderr = None if p.stderr is None else float(p.stderr)
         out[name] = {
             "value": float(p.value), "stderr": stderr,
             "min": float(p.min), "max": float(p.max), "vary": bool(p.vary),
@@ -1172,14 +1198,44 @@ def _at_bound_flags(result: Any, rel_tol: float = 0.01) -> List[str]:
     return flags
 
 
+def _window_chi2red(model: CompositeModel, result_params: Any, q: np.ndarray, I: np.ndarray,
+                    sigma: np.ndarray, windows: Windows) -> Dict[str, float]:
+    """Per-window chi2red (consistency-fix addition): mean squared sigma-
+    normalized residual within each of W_loq/W_peak/W_hiq. Deliberately
+    NOT dof-corrected per window (the global fit's parameters are shared
+    across every window, so there's no clean per-window "how many
+    parameters does this window alone determine" to subtract) -- this is
+    a diagnostic for WHERE the overall chi2red actually comes from, e.g.
+    confirming a real fit's misfit is concentrated in the low-q region
+    rather than the peak window itself (directly useful for a methods
+    section arguing the peak parameters are trustworthy even when the
+    global chi2red is elevated)."""
+    q = np.asarray(q, dtype=float)
+    I = np.asarray(I, dtype=float)
+    sigma = np.asarray(sigma, dtype=float)
+    total = model.eval(q, result_params)
+    resid = np.where(sigma > 0, (I - total) / sigma, 0.0)
+    out: Dict[str, float] = {}
+    for key in ("W_loq", "W_peak", "W_hiq"):
+        m = _mask_for(q, windows, (key,))
+        if int(m.sum()) >= 1:
+            out[f"chi2red_{key.lower()}"] = float(np.mean(resid[m] ** 2))
+    return out
+
+
 def compute_diagnostics(model: CompositeModel, result: Any, q: np.ndarray, I: np.ndarray,
-                        windows: Windows) -> Dict[str, Any]:
+                        windows: Windows, sigma: Optional[np.ndarray] = None) -> Dict[str, Any]:
     """Spec §4.2 Stage 5: chi2red/AIC/BIC (lmfit computes these already),
     rms_log (v2 §1, comparable across residual_mode), Durbin-Watson,
     parameter-correlation flags (specific pl-vs-bg/gp/pl2 pairs are always
     covered here since the check is over EVERY varying pair, not just a
     named subset), at-bounds flags (v2 §4), and physicality flags (q_max
-    inside W_peak; xi vs d/2pi sanity; Rg vs 2pi/q_min warning)."""
+    inside W_peak; xi vs d/2pi sanity; Rg vs 2pi/q_min warning).
+
+    `sigma`, when given, adds per-window chi2red to gof (see
+    _window_chi2red) -- optional (defaults None, skipping those keys) so
+    existing callers/tests that don't have a sigma array handy keep
+    working unmodified."""
     dw = _durbin_watson(np.asarray(result.residual, dtype=float))
     flags: List[str] = []
     if np.isfinite(dw) and dw < 1.3:
@@ -1214,6 +1270,8 @@ def compute_diagnostics(model: CompositeModel, result: Any, q: np.ndarray, I: np
     gof["durbin_watson"] = dw
     gof["cormap_longest_run"] = cormap_run
     gof["cormap_pvalue"] = cormap_p
+    if sigma is not None:
+        gof.update(_window_chi2red(model, result.params, q, I, sigma, windows))
     return {"gof": gof, "flags": flags}
 
 
@@ -1602,44 +1660,74 @@ def _ci_from_profile(best_value: float, grid: np.ndarray, dchi: np.ndarray,
 _CHI2_95_ONE_PARAM = 3.841458820694124  # scipy.stats.chi2.ppf(0.95, df=1)
 
 
+def _log_spaced_grid_around(best: float, max_log_offset: float, n_per_side: int = 12) -> np.ndarray:
+    """25-point grid (n_per_side below + best + n_per_side above) with
+    LOG-spaced offsets in log10(param) from `best`, densest near `best`
+    and sparsest at `max_log_offset` away. Consistency-fix addition: a
+    naive UNIFORM grid across the whole ±range (the ticket's own literal
+    "25 linear/log-spaced points") puts its first off-best sample far
+    enough away that, for a real curve with a genuinely steep chi2
+    landscape, the ACTUAL Delta-chi2 crossing (for either the stat or
+    the rescaled threshold) falls within that single first segment --
+    linear interpolation across one huge, unsampled gap then makes the
+    reported CI half-width scale linearly with the threshold instead of
+    with its square root (found via a real-data consistency check: the
+    stat-vs-rescaled half-width ratio came out as chi2red instead of the
+    theoretically-required sqrt(chi2red), for both d and xi). Densifying
+    near the center (same overall range, same point BUDGET) ensures
+    whichever threshold's crossing point is actually being asked for gets
+    bracketed by nearby samples rather than one distant, uninformative
+    pair."""
+    if max_log_offset <= 0:
+        return np.full(2 * n_per_side + 1, best)
+    log_offsets = np.geomspace(max_log_offset * 1e-4, max_log_offset, n_per_side)
+    below = best * np.power(10.0, -log_offsets[::-1])
+    above = best * np.power(10.0, log_offsets)
+    return np.concatenate([below, [best], above])
+
+
 def compute_ts_profile_likelihood_cis(
     model: CompositeModel, best_result: Any, q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
     residual_mode: str = "weighted_linear",
 ) -> Dict[str, Any]:
-    """v3 §2: profile-likelihood CIs for ts_d (+/-15%, 25 linear grid
-    points) and ts_xi (x/รท4, 25 log-spaced grid points), CI = where
-    Delta-chi2 crosses a threshold (using whatever calibrated sigma the
-    caller passes in -- the v3 §8.4 consistency rule: same weighted
-    statistic used for the optimizer, chi2red/AIC/BIC, ladder selection,
-    AND these intervals). Returns {} when ts_d/ts_xi aren't in the model
-    at all.
+    """v3 §2, re-unified per a real-data consistency cross-check: profile-
+    likelihood CIs for ts_d (out to +/-15%) and ts_xi (out to x/รท4), 25
+    points each, LOG-spaced in offset from the best value (see
+    _log_spaced_grid_around) rather than uniformly across the whole
+    range -- computed ONCE per parameter (the expensive part -- refitting
+    every other free parameter at each grid
+    point) and then evaluated at TWO thresholds against that same
+    Delta-chi2 profile:
 
-    Threshold = 3.841 (the one-parameter, 95%-confidence chi-square
-    critical value, matching the ticket's own explicit "(95%)" label for
-    the xi_unidentifiable report text) times max(1, chi2red_min) -- the
-    latter factor is the standard correction (matching MINUIT/Numerical-
-    Recipes practice) for a fit whose overall chi2red is still >>1 even
-    after sigma self-calibration. A flat Delta-chi2=3.841 alone implicitly
-    assumes the sigma scale is already correct EVERYWHERE, but a global
-    plateau-based calibration (v3 §8.3) can leave regions with
-    additional unmodeled structure (a real TS peak riding on a complex
-    low-q feature, say) still locally under/over-weighted; scaling the
-    threshold by chi2red_min keeps the interval's RELATIVE shape
-    meaningful without pretending the absolute calibration is perfect
-    everywhere. Confirmed empirically necessary on the real P5Bi8-12 fit
-    (chi2red_min ~140): a flat threshold of 1 made even a compensating
-    single-point grid step (~1% away from best) look many-sigma
-    significant, producing an absurdly-tight, physically meaningless CI.
+    - `d_ci_stat`/`xi_ci_stat` ("model-conditional"): Delta-chi2 <= 3.841
+      (the one-parameter 95%-confidence chi-square critical value),
+      taking the calibrated sigma (v3 §8.3's plateau rescale) at face
+      value -- i.e. assuming the model itself is correct and only
+      measurement noise contributes.
+    - `d_ci`/`xi_ci` (the HEADLINE values): Delta-chi2 <= 3.841 *
+      max(1, chi2red_global) -- the standard goodness-of-fit correction
+      (MINUIT/Numerical-Recipes practice) for a fit whose overall chi2red
+      is still >>1 even after plateau calibration, meaning some region
+      has real unmodeled structure (a TS peak riding on a complex low-q
+      feature, say) beyond what a single global sigma rescale can fix.
+      `stat`-vs-headline half-widths should differ by very close to
+      sqrt(chi2red_global) BY CONSTRUCTION (both share the same Delta-chi2
+      profile, only the threshold differs by that factor) -- this ratio
+      is exactly what a real cross-check should verify stayed consistent
+      with lmfit's own (correctly scale_covar=True-corrected) stderr.
 
-    xi_unidentifiable (v3 §2) is set when the upper-side profile never
-    crosses the threshold within the grid, OR the crossing found lands
-    within 1% of ts_xi's own hard upper bound -- either way, the data
-    can't rule out an arbitrarily large xi, so it's reported as a lower
-    bound ("xi > lower_ci") rather than a point value. fa_bound follows:
-    since |fa| increases monotonically toward 1 as xi -> infinity (fa's
-    own formula is a strictly monotonic function of xi at fixed d), an
-    unidentifiable upper xi means the TRUE fa is bounded by whatever fa
-    would be at (d_best, xi_lower_ci) -- reported as `fa < that value`."""
+    Returns {} when ts_d/ts_xi aren't in the model at all.
+
+    xi_unidentifiable (v3 §2) is decided from the HEADLINE (rescaled)
+    profile: set when the upper side never crosses that threshold within
+    the grid, OR the crossing found lands within 1% of ts_xi's own hard
+    upper bound -- either way, the data can't rule out an arbitrarily
+    large xi, so it's reported as a lower bound ("xi > lower_ci") rather
+    than a point value. fa_bound follows: since |fa| increases
+    monotonically toward 1 as xi -> infinity (fa's own formula is a
+    strictly monotonic function of xi at fixed d), an unidentifiable
+    upper xi means the TRUE fa is bounded by whatever fa would be at
+    (d_best, xi_lower_ci) -- reported as `fa < that value`."""
     from saxs_core.composite_models import ts_classic_from_physical
     names = best_result.params
     if "ts_d" not in names or "ts_xi" not in names:
@@ -1648,17 +1736,20 @@ def compute_ts_profile_likelihood_cis(
     xi_best = float(names["ts_xi"].value)
     d_lo_b, d_hi_b = float(names["ts_d"].min), float(names["ts_d"].max)
     xi_lo_b, xi_hi_b = float(names["ts_xi"].min), float(names["ts_xi"].max)
-    chi2red_min = float(best_result.redchi) if math.isfinite(best_result.redchi) else 1.0
-    threshold = _CHI2_95_ONE_PARAM * max(1.0, chi2red_min)
+    chi2red_global = float(best_result.redchi) if math.isfinite(best_result.redchi) else 1.0
+    threshold_stat = _CHI2_95_ONE_PARAM
+    threshold_rescaled = _CHI2_95_ONE_PARAM * max(1.0, chi2red_global)
 
-    d_grid = np.clip(np.linspace(d_best * 0.85, d_best * 1.15, 25), d_lo_b, d_hi_b)
-    xi_grid = np.clip(np.geomspace(max(xi_best / 4.0, 1e-6), xi_best * 4.0, 25), xi_lo_b, xi_hi_b)
+    d_grid = np.clip(_log_spaced_grid_around(d_best, math.log10(1.15), n_per_side=12), d_lo_b, d_hi_b)
+    xi_grid = np.clip(_log_spaced_grid_around(xi_best, math.log10(4.0), n_per_side=12), xi_lo_b, xi_hi_b)
 
     d_dchi = _profile_delta_chi2(model, best_result, q, I, sigma, "ts_d", d_grid, residual_mode)
-    d_lower, d_upper = _ci_from_profile(d_best, d_grid, d_dchi, threshold=threshold)
+    d_lower, d_upper = _ci_from_profile(d_best, d_grid, d_dchi, threshold=threshold_rescaled)
+    d_lower_stat, d_upper_stat = _ci_from_profile(d_best, d_grid, d_dchi, threshold=threshold_stat)
 
     xi_dchi = _profile_delta_chi2(model, best_result, q, I, sigma, "ts_xi", xi_grid, residual_mode)
-    xi_lower, xi_upper = _ci_from_profile(xi_best, xi_grid, xi_dchi, threshold=threshold)
+    xi_lower, xi_upper = _ci_from_profile(xi_best, xi_grid, xi_dchi, threshold=threshold_rescaled)
+    xi_lower_stat, xi_upper_stat = _ci_from_profile(xi_best, xi_grid, xi_dchi, threshold=threshold_stat)
 
     xi_unidentifiable = xi_upper is None or (
         xi_hi_b > 0 and abs(xi_upper - xi_hi_b) <= 0.01 * xi_hi_b
@@ -1666,10 +1757,12 @@ def compute_ts_profile_likelihood_cis(
 
     out: Dict[str, Any] = {
         "d_ci": (d_lower, d_upper) if (d_lower is not None and d_upper is not None) else None,
+        "d_ci_stat": (d_lower_stat, d_upper_stat) if (d_lower_stat is not None and d_upper_stat is not None) else None,
         "xi_unidentifiable": xi_unidentifiable,
     }
     if xi_unidentifiable:
         out["xi_ci"] = (xi_lower, None) if xi_lower is not None else None
+        out["xi_ci_stat"] = (xi_lower_stat, None) if xi_lower_stat is not None else None
         if xi_lower is not None:
             a2, c1, c2 = ts_classic_from_physical(d_best, xi_lower)
             out["fa_bound"] = c1 / math.sqrt(4.0 * a2 * c2)
@@ -1677,6 +1770,9 @@ def compute_ts_profile_likelihood_cis(
             out["fa_bound"] = None
     else:
         out["xi_ci"] = (xi_lower, xi_upper) if (xi_lower is not None and xi_upper is not None) else None
+        out["xi_ci_stat"] = (
+            (xi_lower_stat, xi_upper_stat) if (xi_lower_stat is not None and xi_upper_stat is not None) else None
+        )
         out["fa_bound"] = None
     return out
 
@@ -1929,7 +2025,7 @@ def fit_staged(
     if no_peak and had_ts:
         flags.append("no_peak")  # TS was fit through stages 1-4 but the ladder rejected it on BIC
 
-    diagnostics = compute_diagnostics(final_model, final_result, q, I, active_windows)
+    diagnostics = compute_diagnostics(final_model, final_result, q, I, active_windows, sigma=sigma)
     stages["stage5"] = diagnostics
     flags.extend(diagnostics["flags"])
 
@@ -1998,4 +2094,5 @@ def fit_staged(
         d_ci=ci_info.get("d_ci"), xi_ci=ci_info.get("xi_ci"),
         xi_unidentifiable=bool(ci_info.get("xi_unidentifiable", False)), fa_bound=ci_info.get("fa_bound"),
         d_peak=d_peak, xi_peak=xi_peak, xi_unreliable=xi_unreliable, d_unreliable=d_unreliable,
+        d_ci_stat=ci_info.get("d_ci_stat"), xi_ci_stat=ci_info.get("xi_ci_stat"),
     )

@@ -126,7 +126,7 @@ def run_batch(
                     if cont_result is not None:
                         baseline_chi2 = baseline.gof["chi2red"]
                         if cont_result.redchi <= baseline_chi2 * chi2_degrade_factor and cont_result.redchi < baseline_chi2:
-                            diagnostics = compute_diagnostics(model, cont_result, q, I, baseline.windows)
+                            diagnostics = compute_diagnostics(model, cont_result, q, I, baseline.windows, sigma=sigma)
                             chosen = FitResult(
                                 sample_id=it.sample_id, preset_chosen=baseline.preset_chosen,
                                 residual_mode=baseline.residual_mode, loss=baseline.loss,
