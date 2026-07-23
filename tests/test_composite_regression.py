@@ -118,6 +118,26 @@ unidentifiable" are explicitly listed as acceptable outcomes by the
 ticket's own ADDENDUM acceptance criteria (§7/§8.6) -- this is the
 documented, real result of applying that criterion honestly, not a
 regression.
+
+v5 re-freeze note (Beaucage-augmented model library, same session):
+composite_models.BeaucageUnified existed but was never wired into any
+preset/stage before this pass. Wiring it in as a class-anchored knee-
+level alternative to guinier_porod (given the SAME staged, q_knee-seeded
+treatment so it competes fairly) changed this profile's ladder pick from
+BG_TS_PL2 to BG_TS_BC: Beaucage's additive Guinier+Porod form has no
+fixed asymptotic slope ceiling in its OWN transition region the way
+Hammouda's guinier_porod does, and the classifier's own knee detector
+gained a fallback (an interior slope-minimum-then-relaxation signature)
+that now finds a genuine knee on this profile where it previously found
+none. d re-verifies to 875.13 Å -- still within 0.05% of the v3 frozen
+value (875.5650) and the ticket's own "875+-90" acceptance target --
+while chi2red improves from 111.6 to 77.4 (a real, better fit, not a
+side effect). xi_unidentifiable/d_ci/xi_ci/d_ci_stat all stay None for
+the same reason already documented above (sigma_eff's inflation widens
+the profile-likelihood surface past closure); a new d_unreliable flag
+appears (Stage 2b's peak-focused cross-check now disagrees with the
+global fit by more than 10%, itself a symptom of the same real
+correlation between bu_B/bu_p/bg_C this profile's own fit reports).
 """
 from __future__ import annotations
 
@@ -132,13 +152,13 @@ FIXTURE_PATH = Path(__file__).parent / "fixtures" / "P5Bi8-12__corr.dat"
 
 # Frozen reference (multistart_n=8, sample_id="P5Bi8-12" — deterministic,
 # see test_composite_staged.py's own determinism test for why this is safe
-# to freeze exactly). Captured directly from a real run of the v4 pipeline
+# to freeze exactly). Captured directly from a real run of the v5 pipeline
 # against this exact fixture (verified reproducible across repeated runs).
-FROZEN_D = 875.565175319907
-FROZEN_XI = 3858.186091992835
-FROZEN_PRESET = "BG_TS_PL2"
-FROZEN_RMS_LOG = 0.26528297973144965
-FROZEN_CHI2RED = 111.60715858769022
+FROZEN_D = 875.1317687631542
+FROZEN_XI = 3281.0987369096165
+FROZEN_PRESET = "BG_TS_BC"
+FROZEN_RMS_LOG = 0.2315806970800652
+FROZEN_CHI2RED = 77.40021465482283
 FROZEN_SIGMA_SCALE = 2.1796323009261656
 
 

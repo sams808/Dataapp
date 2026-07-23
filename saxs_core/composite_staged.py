@@ -400,28 +400,77 @@ def detect_knee_q(q: np.ndarray, I: np.ndarray, q_lo: float = 1e-3, q_hi: float 
     the smoothed slope of its immediate (non-excluded) neighbors too
     (the smoothing window is wider than the exclusion radius), which
     skipping only the excluded indices during the scan doesn't prevent."""
-    q = np.asarray(q, dtype=float)
-    I = np.asarray(I, dtype=float)
-    mask = (q >= q_lo) & (q <= q_hi) & (q > 0) & (I > 0) & np.isfinite(q) & np.isfinite(I)
-    if exclude_around_peak is not None and exclude_around_peak > 0:
-        mask = mask & ~((q >= exclude_around_peak / 1.15) & (q <= exclude_around_peak * 1.15))
-    if int(mask.sum()) < 8:
+    def _slope_trace(qhi: float) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        m = (q >= q_lo) & (q <= qhi) & (q > 0) & (I > 0) & np.isfinite(q) & np.isfinite(I)
+        if exclude_around_peak is not None and exclude_around_peak > 0:
+            m = m & ~((q >= exclude_around_peak / 1.15) & (q <= exclude_around_peak * 1.15))
+        if int(m.sum()) < 8:
+            return None
+        qm, Im = q[m], I[m]
+        order = np.argsort(qm)
+        qm, Im = qm[order], Im[order]
+        from scipy.ndimage import uniform_filter1d
+        log_q, log_I = np.log10(qm), np.log10(Im)
+        n = len(log_q)
+        win = max(3, n // 6)
+        smoothed = uniform_filter1d(log_I, size=win, mode="nearest")
+        return qm, np.gradient(smoothed, log_q)
+
+    primary = _slope_trace(q_hi)
+    if primary is None:
         return None
-    qm, Im = q[mask], I[mask]
-    order = np.argsort(qm)
-    qm, Im = qm[order], Im[order]
-    from scipy.ndimage import uniform_filter1d
-    log_q, log_I = np.log10(qm), np.log10(Im)
-    n = len(log_q)
-    win = max(3, n // 6)
-    smoothed = uniform_filter1d(log_I, size=win, mode="nearest")
-    slope = np.gradient(smoothed, log_q)
+    qm, slope = primary
     was_flat = False
     for i in range(len(slope)):
         if slope[i] > -0.5:
             was_flat = True
         elif was_flat and slope[i] < -2.0:
             return float(qm[i])
+
+    # v5 fallback: the genuinely flat plateau can sit ENTIRELY within the
+    # beamstop-trimmed region for some real profiles (confirmed directly:
+    # several real samples show a slope that is ALREADY steeper than -2 at
+    # the very first point retained after trimming, with no flat evidence
+    # recoverable at any q within [q_lo, q_hi] -- yet these same samples
+    # produce catastrophic chi2red on a bare flat_background+power_law
+    # fit, confirming a knee-type component is genuinely needed). A
+    # Guinier-to-Porod crossover has a distinctive signature even when
+    # only its STEEP side is observable: the local slope reaches a
+    # genuine INTERIOR minimum (steepest point) and then measurably
+    # RELAXES back toward a shallower, more stable asymptotic value -- a
+    # pure single power law or a monotonically-steepening decay never
+    # does this (nothing to relax back FROM). Searched over a WIDER range
+    # than the primary scan (some real profiles don't show clear
+    # relaxation until past q_hi) but kept as a separate trace rather
+    # than just widening q_hi outright, so the already-validated primary
+    # path's behavior on real data is untouched. Requires the minimum to
+    # sit strictly inside the array (not at either edge, where it could
+    # just be a not-yet-resolved trend) and the relaxation to be
+    # substantial (>=2, matching the same -2.0 steepness bar used above)
+    # to avoid firing on gentle curvature or noise.
+    wide = _slope_trace(q_hi * 2.0)
+    if wide is None:
+        return None
+    qm_w, slope_w = wide
+    n_w = len(slope_w)
+    # uniform_filter1d's own "nearest" edge padding can flatten the LAST
+    # point or two of ANY trace by itself (already documented and guarded
+    # against elsewhere in this file, in detect_high_q_cut, for the exact
+    # same reason) -- only the RIGHT-side margin guards against that; a
+    # genuinely steep-from-the-very-start real profile (confirmed on
+    # several real samples in this series) can have its steepest point
+    # sit right at (or one point from) the LEFT edge, which is expected
+    # and must NOT be excluded the same way. The "relaxed" reference is
+    # the MEDIAN of the last fifth of the trace rather than the single
+    # boundary point, so one smoothing-boundary artifact point can't
+    # manufacture a fake relaxation signal on its own.
+    right_margin = max(2, n_w // 10)
+    i_min = int(np.argmin(slope_w))
+    if 0 <= i_min < n_w - right_margin and slope_w[i_min] < -2.0:
+        tail = slope_w[-max(3, n_w // 5):]
+        relaxation = float(np.median(tail)) - slope_w[i_min]
+        if relaxation >= 2.0:
+            return float(qm_w[i_min])
     return None
 
 
@@ -796,7 +845,27 @@ def detect_beamstop_edge_trim(q: np.ndarray, I: np.ndarray, max_points: int = 10
     artifact does) and under/over-triggered depending on how far into a
     peak's own rising flank that reference window happened to land.
     Comparing only immediate neighbors for simple non-monotonicity avoids
-    both failure modes."""
+    both failure modes.
+
+    v4 investigation note: the real parent (peak-free) profiles in this
+    series show a WIDER, multi-wiggle non-monotonic pattern at low q (2-3
+    separate up-down excursions across the first 4-5 points, each one
+    hundreds of sigma above measurement noise, not a single clean rise-
+    then-fall) -- a global-argmax-based trim that swallows the ENTIRE
+    wiggle was tried and directly measured to be WORSE, not better: for
+    several parents the genuine flat Guinier plateau turned out to sit
+    ENTIRELY within that wider wiggle region (confirmed directly: the
+    very first point retained after such a trim already showed slope
+    steeper than -0.9, with no flat evidence anywhere in the classifier's
+    fixed knee-search window), so trimming the whole wiggle away broke
+    knee detection outright (cascaded to plain BG, chi2red in the
+    millions -- a real, measured regression, not a hypothetical one).
+    Whether that wider wiggle is genuinely artifact-plus-plateau or
+    something else is an open data-reduction question -- see the
+    project's own notes on raw-vs-corrected low-q treatment -- but
+    fixing it is NOT this function's job: the conservative single-rise
+    behavior is kept here since it is the version verified not to break
+    downstream model selection on the real series."""
     q = np.asarray(q, dtype=float)
     I = np.asarray(I, dtype=float)
     n = len(q)
@@ -1385,6 +1454,56 @@ def _stage3_add_gp(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Win
     return {"model": model, "result": result, "mask": mask, "seeds": seed_values}
 
 
+def _stage3_add_beaucage(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows,
+                         prev: Dict[str, Any], had_ts: bool,
+                         residual_mode: str = "weighted_linear",
+                         bg_c_bounds: Optional[Tuple[float, float]] = None,
+                         q_knee: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """v5 (Beaucage-augmented model library): the class-anchored knee-level
+    ALTERNATIVE to _stage3_add_gp, given the SAME staged treatment (frozen
+    bg/pl, class-anchored p bounds, q_knee-seeded Rg via the identical
+    exp(-q^2 Rg^2/3) Guinier term both components share) so it competes
+    fairly in the ladder rather than arriving as a hastily fresh-seeded
+    sibling. Motivation: composite_models.BeaucageUnified was already
+    implemented (Beaucage, J. Appl. Cryst. 28, 717, 1995) but never wired
+    into any preset or stage -- Hammouda's guinier_porod hard-switches to
+    a FIXED power-law asymptote at its own continuity point q1, which
+    structurally cannot reproduce a local log-log slope steeper than its
+    own bounded exponent p (<=4.3 here); the real knee-transition region
+    in this series has been measured to show local slopes as steep as -8
+    to -12 (see the per-window chi2red investigation on the real
+    P5Bi8-12 profile). Beaucage's own additive Guinier+Porod form has no
+    such ceiling in the transition itself, since the ever-steepening
+    Guinier exponential contributes directly there rather than being cut
+    off at a single matched point."""
+    prev_names = ["flat_background", "power_law"] + (["teubner_strey"] if had_ts else [])
+    model = build_composite(prev_names + ["beaucage_unified"])
+    mask = _mask_for(q, windows, ("W_loq",))
+    min_pts = 8  # matches _stage3_add_gp's own bar (3 free params: Rg, B, p)
+    if int(mask.sum()) < min_pts and q_knee is not None and q_knee > 0:
+        hiq_lo = windows.get("W_hiq", (float(np.max(q)), float(np.max(q))))[0]
+        wide_hi = min(hiq_lo, 3.0 * q_knee)
+        mask = (q >= float(np.min(q))) & (q <= wide_hi)
+    if int(mask.sum()) < min_pts:
+        return None
+    frozen = prev["result"].params
+    seed_values = {name: frozen[name].value for name in frozen}
+    bc_seed = model.components[-1][1].seed(q[mask], I[mask], windows)
+    if q_knee is not None and q_knee > 0:
+        bc_seed["Rg"] = math.sqrt(6.0) / q_knee
+    seed_values.update({f"bu_{k}": v for k, v in bc_seed.items()})
+    bound_overrides = {"bg_C": bg_c_bounds} if bg_c_bounds is not None else {}
+    params = model.to_lmfit_parameters(seed_values=seed_values, bound_overrides=bound_overrides)
+    for name in frozen:
+        if name != "bg_C":
+            model.fix(params, name, frozen[name].value)
+    params["bu_p"].set(min=3.0, max=4.3)
+    if not (params["bu_p"].min < params["bu_p"].value < params["bu_p"].max):
+        params["bu_p"].set(value=4.0)
+    result = model.fit(q[mask], I[mask], sigma=sigma[mask], params=params, residual_mode=residual_mode)
+    return {"model": model, "result": result, "mask": mask, "seeds": seed_values}
+
+
 def detect_guinier_knee(q: np.ndarray, I: np.ndarray, windows: Windows) -> bool:
     """Does W_loq actually show a genuine, well-RESOLVED Guinier knee (v2
     §3)? Fits the local log-log slope s(q) = d(log I)/d(log q) across
@@ -1819,6 +1938,7 @@ def select_best_preset(
     sample_id: str, multistart_n: int, residual_mode: str = "weighted_linear",
     had_ts: bool = False, has_knee: bool = False, windows: Optional[Windows] = None,
     bg_c_bounds: Optional[Tuple[float, float]] = None,
+    precomputed: Optional[Dict[str, Tuple[CompositeModel, Any]]] = None,
 ) -> Dict[str, Any]:
     """Spec §4.2 Stage 6, extended per v2 §3 and v3 ADDENDUM §7: the ladder
     is BG -> BG_DAB -> BG_TS -> BG_TS_OZ -> BG_TS_PL2 -> BG_TS_GP, where
@@ -1895,12 +2015,21 @@ def select_best_preset(
             return True
         if name in ladder:  # already tried and guardrail/visual-equivalence-rejected
             return False
-        fit = _fit_full_range(component_names, q, I, sigma, sample_id, multistart_n,
-                              residual_mode=residual_mode, windows=windows, bg_c_bounds=bg_c_bounds)
-        result = fit["result"]
-        if not _passes_guardrail(name, component_names, fit["model"], result):
+        if precomputed and name in precomputed:
+            # v5: a candidate already staged+globally-refined by the
+            # caller (e.g. the non-primary knee-level alternative from
+            # Stage 3, given the SAME frozen-bg/q_knee-seeded treatment
+            # as the assembled winner) -- use it as-is rather than
+            # re-fitting from a generic whole-range seed, which measurably
+            # lands in a much worse local optimum for these components.
+            model, result = precomputed[name]
+        else:
+            fit = _fit_full_range(component_names, q, I, sigma, sample_id, multistart_n,
+                                  residual_mode=residual_mode, windows=windows, bg_c_bounds=bg_c_bounds)
+            model, result = fit["model"], fit["result"]
+        if not _passes_guardrail(name, component_names, model, result):
             return False
-        candidates[name] = (fit["model"], result)
+        candidates[name] = (model, result)
         return True
 
     order: List[str] = []
@@ -1908,6 +2037,31 @@ def select_best_preset(
         order.append("BG")
     if _ensure("BG_DAB", ["flat_background", "power_law", "dab"]):
         order.append("BG_DAB")
+    if has_knee and _ensure("BG_BC", ["flat_background", "power_law", "beaucage_unified"]):
+        # v5 (Beaucage-augmented model library): a class-anchored alternative
+        # to BG_GP, tried whenever a knee exists -- Hammouda's guinier_porod
+        # locks the high-q asymptote to a FIXED, bounded power law (p<=4.3),
+        # but the real knee-transition region in this series has been
+        # measured to show local log-log slopes as steep as -8 to -12 (see
+        # _stage3_add_gp's own docstring history and the real per-window
+        # chi2red investigation on P5Bi8-12) -- steeper than ANY fixed
+        # power-law asymptote can produce. Beaucage's additive Guinier+Porod
+        # form (already implemented in composite_models.py, previously
+        # unused anywhere in this pipeline) has no such asymptotic ceiling
+        # in its transition region, since the Guinier term's own ever-
+        # steepening exponential decay contributes directly there rather
+        # than being hard-switched off at a fixed crossover point.
+        order.append("BG_BC")
+    if has_knee and _ensure("BG_GP", ["flat_background", "power_law", "guinier_porod"]):
+        # Explicit sibling to BG_BC above (mirrors its placement exactly):
+        # without this, when Beaucage wins as the PRIMARY assembled path,
+        # guinier_porod -- carried forward as the precomputed, fully-staged
+        # alternate candidate -- was never actually entered into the
+        # ladder for the no-TS-peak case (it only got a free ride in via
+        # the assembled_name fallback below, which only fires when GP
+        # itself was the assembled winner). Found via direct testing: the
+        # BG_GP vs BG_BC comparison must run both ways, not just one.
+        order.append("BG_GP")
     if had_ts:
         if _ensure("BG_TS", ["flat_background", "power_law", "teubner_strey"]):
             order.append("BG_TS")
@@ -1917,6 +2071,8 @@ def select_best_preset(
             order.append("BG_TS_PL2")
         if has_knee and _ensure("BG_TS_GP", ["flat_background", "power_law", "teubner_strey", "guinier_porod"]):
             order.append("BG_TS_GP")
+        if has_knee and _ensure("BG_TS_BC", ["flat_background", "power_law", "teubner_strey", "beaucage_unified"]):
+            order.append("BG_TS_BC")
     if assembled_name not in order and assembled_name in candidates:
         order.append(assembled_name)
 
@@ -1940,10 +2096,12 @@ def select_best_preset(
 # preset from the ladder" -- the ladder's own order, one step back.
 # v3 ADDENDUM §7 inserts BG_TS_OZ between BG_TS and BG_TS_PL2.
 _SIMPLER_PRESET = {
+    "BG_TS_BC": "BG_TS_GP",
     "BG_TS_GP": "BG_TS_PL2",
     "BG_TS_PL2": "BG_TS_OZ",
     "BG_TS_OZ": "BG_TS",
     "BG_TS": "BG_DAB",
+    "BG_BC": "BG_DAB",
     "BG_DAB": "BG",
     "BG": "BG",
 }
@@ -2473,11 +2631,35 @@ def fit_staged(
     # peak-artifact-prone propose_windows for exactly the samples (no
     # peak, no reference W_peak edge) where that circularity bites.
     has_knee = morphology.q_knee is not None
+    stage3_alt_name = None
+    stage3_alt = None
+    stage3_alt_model = stage3_alt_result = None
     if has_knee:
-        stage3 = _stage3_add_gp(q, I, sigma, active_windows, {"result": current_result}, had_ts,
-                                residual_mode=residual_mode, bg_c_bounds=bg_c_bounds,
-                                q_knee=morphology.q_knee)
-        stage3_component = "guinier_porod"
+        # v5: try BOTH class-anchored knee-level candidates with the SAME
+        # staged (frozen bg/pl, q_knee-seeded) treatment, rather than
+        # picking one by has_knee alone and leaving the other to arrive at
+        # the ladder as a hastily fresh-seeded sibling (measured to fit
+        # much worse purely from the weaker seeding, not genuine model
+        # inferiority -- see _stage3_add_beaucage's own docstring). The
+        # better of the two (by chi2) becomes the primary assembled path;
+        # the other is carried forward and ALSO given its own Stage 4
+        # global polish below, then handed to the ladder as a precomputed
+        # candidate so BIC compares two fairly-optimized fits.
+        stage3_gp = _stage3_add_gp(q, I, sigma, active_windows, {"result": current_result}, had_ts,
+                                   residual_mode=residual_mode, bg_c_bounds=bg_c_bounds,
+                                   q_knee=morphology.q_knee)
+        stage3_bc = _stage3_add_beaucage(q, I, sigma, active_windows, {"result": current_result}, had_ts,
+                                         residual_mode=residual_mode, bg_c_bounds=bg_c_bounds,
+                                         q_knee=morphology.q_knee)
+        knee_candidates = [(name, s) for name, s in
+                          (("guinier_porod", stage3_gp), ("beaucage_unified", stage3_bc)) if s is not None]
+        if knee_candidates:
+            knee_candidates.sort(key=lambda t: t[1]["result"].redchi)
+            stage3_component, stage3 = knee_candidates[0]
+            if len(knee_candidates) > 1:
+                stage3_alt_name, stage3_alt = knee_candidates[1]
+        else:
+            stage3, stage3_component = None, "guinier_porod"
     else:
         stage3 = _stage3_add_pl2(q, I, sigma, active_windows, {"result": current_result}, had_ts,
                                  residual_mode=residual_mode, bg_c_bounds=bg_c_bounds)
@@ -2509,13 +2691,23 @@ def fit_staged(
     stages["stage4"] = {"redchi": float(stage4["result"].redchi), "n_multistart": multistart_n}
     assembled_model, assembled_result = stage4["model"], stage4["result"]
 
+    if stage3_alt is not None:
+        alt_best_values = {name: stage3_alt["result"].params[name].value for name in stage3_alt["result"].params}
+        alt_fixed_params: List[str] = ["pl_B", "pl_p"] if "power_law" in pruned else []
+        alt_stage4 = _stage4_global(q, I, sigma, stage3_alt["model"], alt_best_values, sample_id, multistart_n,
+                                    residual_mode=residual_mode, fixed_params=alt_fixed_params or None,
+                                    bg_c_bounds=bg_c_bounds)
+        stage3_alt_model, stage3_alt_result = alt_stage4["model"], alt_stage4["result"]
+
     assembled_name = {
         ("flat_background", "power_law"): "BG",
         ("flat_background", "power_law", "guinier_porod"): "BG_GP",
+        ("flat_background", "power_law", "beaucage_unified"): "BG_BC",
         ("flat_background", "power_law", "power_law2"): "BG_PL2",
         ("flat_background", "power_law", "teubner_strey"): "BG_TS",
         ("flat_background", "power_law", "teubner_strey", "power_law2"): "BG_TS_PL2",
         ("flat_background", "power_law", "teubner_strey", "guinier_porod"): "BG_TS_GP",
+        ("flat_background", "power_law", "teubner_strey", "beaucage_unified"): "BG_TS_BC",
     }.get(tuple(preset_names), "+".join(preset_names))
 
     if force_preset is not None:
@@ -2530,10 +2722,15 @@ def fit_staged(
         preset_chosen = force_preset
         stages["stage6"] = {"forced": force_preset}
     else:
+        precomputed: Dict[str, Tuple[CompositeModel, Any]] = {}
+        if stage3_alt_result is not None:
+            alt_component_name = {"guinier_porod": "GP", "beaucage_unified": "BC"}[stage3_alt_name]
+            alt_preset_name = f"BG_TS_{alt_component_name}" if had_ts else f"BG_{alt_component_name}"
+            precomputed[alt_preset_name] = (stage3_alt_model, stage3_alt_result)
         stage6 = select_best_preset(q, I, sigma, assembled_name, assembled_model, assembled_result,
                                     sample_id, multistart_n, residual_mode=residual_mode,
                                     had_ts=had_ts, has_knee=has_knee, windows=active_windows,
-                                    bg_c_bounds=bg_c_bounds)
+                                    bg_c_bounds=bg_c_bounds, precomputed=precomputed or None)
         stages["stage6"] = stage6["ladder"]
         preset_chosen = stage6["chosen"]
         final_model, final_result = stage6["model"], stage6["result"]

@@ -55,11 +55,13 @@ PRESETS: Dict[str, List[str]] = {
     "BG": ["flat_background", "power_law"],
     "BG_DAB": ["flat_background", "power_law", "dab"],
     "BG_GP": ["flat_background", "power_law", "guinier_porod"],
+    "BG_BC": ["flat_background", "power_law", "beaucage_unified"],
     "BG_PL2": ["flat_background", "power_law", "power_law2"],
     "BG_TS": ["flat_background", "power_law", "teubner_strey"],
     "BG_TS_OZ": ["flat_background", "power_law", "teubner_strey", "lorentz_oz"],
     "BG_TS_PL2": ["flat_background", "power_law", "teubner_strey", "power_law2"],
     "BG_TS_GP": ["flat_background", "power_law", "teubner_strey", "guinier_porod"],
+    "BG_TS_BC": ["flat_background", "power_law", "teubner_strey", "beaucage_unified"],
     "BG_BP": ["flat_background", "power_law", "broad_peak"],
 }
 

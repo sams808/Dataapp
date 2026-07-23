@@ -5,16 +5,19 @@ peak-free and real profiles, and stage-by-stage result retention.
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
-from saxs_core.composite_fit import build_composite, build_preset
+from saxs_core.composite_fit import PRESETS, build_composite, build_preset
 from saxs_core.composite_staged import (
-    MorphologyResult, _bg_c_plateau_bounds, _walk_ladder, apply_hygiene,
-    classify_morphology, compute_diagnostics, detect_knee_q, detect_midq_hump,
-    detect_peak_q, estimate_sigma_model, fit_staged, fit_systematic_floor,
-    guess_class, propose_windows, propose_windows_from_classifier,
-    select_best_preset, ts_window_local_delta_bic,
+    MorphologyResult, _bg_c_plateau_bounds, _stage1_bg, _stage3_add_beaucage,
+    _walk_ladder, apply_hygiene, classify_morphology,
+    compute_diagnostics, detect_knee_q, detect_midq_hump, detect_peak_q,
+    estimate_sigma_model, fit_staged, fit_systematic_floor, guess_class,
+    propose_windows, propose_windows_from_classifier, select_best_preset,
+    ts_window_local_delta_bic,
 )
 from saxs_core.curve import Curve
 
@@ -229,9 +232,20 @@ def test_select_best_preset_keeps_a_well_justified_ts_fit():
     curve = _ts_curve(d=1200.0, xi=3000.0, seed=7)
     result = fit_staged(curve, multistart_n=4)
     # already exercises select_best_preset internally via fit_staged; the
-    # ladder must not have demoted a clearly-justified TS fit
+    # ladder must not have demoted AWAY FROM a clearly-justified TS fit --
+    # i.e. TS itself must survive, which is what this test actually cares
+    # about. It does NOT require the knee-level component underneath TS to
+    # stay fixed: v5 (Beaucage-augmented model library) can legitimately
+    # win a ladder_demoted flag purely on which KNEE description is used
+    # (BG_TS_GP -> BG_TS_BC here) while TS itself is untouched -- verified
+    # directly on this exact curve: BG_TS_BC's BIC is dramatically better
+    # than BG_TS_GP's (Beaucage's additive form has more flexibility to
+    # match a GP-generated synthetic than GP's own discontinuous-
+    # derivative-matched crossover), not a spurious demotion.
     assert "TS" in result.preset_chosen
-    assert not any(f.startswith("ladder_demoted") for f in result.flags)
+    non_ts_demotions = [f for f in result.flags
+                       if f.startswith("ladder_demoted") and "TS" not in f.split("->")[-1]]
+    assert not non_ts_demotions
 
 
 def test_compute_diagnostics_flags_low_durbin_watson_on_trending_residuals():
@@ -306,6 +320,47 @@ def test_detect_knee_q_none_on_pure_power_law():
     # never genuinely flat (>-0.5) before going steep, so no knee exists.
     q = np.linspace(1e-3, 0.3, 900)
     I = 1e3 * q ** -3.0
+    assert detect_knee_q(q, I) is None
+
+
+def test_detect_knee_q_fallback_finds_knee_when_flat_side_is_hidden():
+    # v5: the genuine flat Guinier plateau can sit ENTIRELY below q_lo for
+    # a real profile (confirmed on several real samples whose beamstop-
+    # trimmed low-q edge already sits past their own knee, showing a
+    # steep transient that RELAXES toward a genuinely SHALLOWER final
+    # asymptote than the transient's own steepest point -- not just a
+    # single Guinier-Porod term's own p, whose transient overshoot beyond
+    # its own asymptote turns out to be modest, a few tenths, not the
+    # large multi-unit relaxation this fallback requires). Modeled here
+    # as a strong Guinier feature (q1 well below q_lo) riding on top of a
+    # separate, genuinely shallow power-law background -- once the
+    # Guinier term's own contribution becomes negligible at higher q, the
+    # curve relaxes toward the shallow power law's own asymptote, a large
+    # drop from the transient's steepest point.
+    q = np.linspace(1e-3, 0.3, 900)
+    model = build_preset("BG")
+    from saxs_core.composite_models import Guinier
+    I = model.eval(q, {"bg_C": 1.0, "pl_B": 1e3, "pl_p": 2.0}) + \
+        Guinier().eval(q, G=1e12, Rg=3000.0)  # q1 ~ 1/Rg = 3.3e-4, below q_lo
+    q_knee = detect_knee_q(q, I)
+    assert q_knee is not None
+
+
+def test_detect_knee_q_fallback_none_on_monotonically_steepening_decay():
+    # A pure Guinier decay's own log-log slope is a strictly monotonically
+    # decreasing function of q (mathematically: slope(q) = -2*q^2*Rg^2 /
+    # (3*ln10)) -- ALWAYS getting steeper, never leveling off, with no
+    # additive background/power-law term to eventually dominate and
+    # create an artificial relaxation signature. No interior minimum with
+    # subsequent relaxation exists here, so the fallback must not fire.
+    # Rg chosen so the curve stays well within double-precision range
+    # (no numerical floor/clipping) across the classifier's own extended
+    # fallback search window -- a floor would itself manufacture a fake
+    # flat tail, exactly the artifact this test needs to avoid to isolate
+    # the "no genuine relaxation" case.
+    q = np.linspace(1e-3, 0.3, 900)
+    from saxs_core.composite_models import Guinier
+    I = Guinier().eval(q, G=1e12, Rg=200.0) + 1e-20
     assert detect_knee_q(q, I) is None
 
 
@@ -592,6 +647,90 @@ def test_fit_staged_p2bi2_13_no_peak_regression():
     assert result.q_peak is None
     assert result.no_peak is True
     assert "teubner_strey" not in result.preset_chosen.lower() and "TS" not in result.preset_chosen
+
+
+# ---------------------------------------------------------------------------
+# v5 — Beaucage-augmented model library (BG_BC / BG_TS_BC)
+# ---------------------------------------------------------------------------
+
+def test_presets_include_beaucage_variants():
+    assert PRESETS["BG_BC"] == ["flat_background", "power_law", "beaucage_unified"]
+    assert PRESETS["BG_TS_BC"] == ["flat_background", "power_law", "teubner_strey", "beaucage_unified"]
+
+
+def test_stage3_add_beaucage_respects_bg_c_bounds_and_q_knee_seed():
+    q = np.linspace(1e-3, 0.3, 900)
+    model = build_preset("BG_GP")
+    true = {"bg_C": 50.0, "pl_B": 1e-9, "pl_p": 4.0, "gp_G": 4e8, "gp_Rg": 800.0, "gp_p": 4.0}
+    I = model.eval(q, true)
+    sigma = np.sqrt(np.abs(I)) * 0.01 + 0.5
+    windows = {"W_loq": (float(q[0]), 0.006), "W_peak": (float(q[0]), float(q[0])),
+              "W_hiq": (0.02, float(q[-1]))}
+    stage1 = _stage1_bg(q, I, sigma, windows, sample_id="test")
+    bg_c_bounds = (10.0, 200.0)
+    q_knee = math.sqrt(6.0) / 800.0  # matches the true Rg used above
+    out = _stage3_add_beaucage(q, I, sigma, windows, stage1, had_ts=False,
+                               bg_c_bounds=bg_c_bounds, q_knee=q_knee)
+    assert out is not None
+    bg_val = out["result"].params["bg_C"].value
+    assert bg_c_bounds[0] <= bg_val <= bg_c_bounds[1]
+    assert out["result"].params["bg_C"].min == pytest.approx(bg_c_bounds[0])
+    assert out["result"].params["bg_C"].max == pytest.approx(bg_c_bounds[1])
+    # Rg seed used q_knee -- close to the true Rg for a curve actually
+    # generated with that Rg (not asserting exact recovery, just sanity).
+    assert 100.0 < out["result"].params["bu_Rg"].value < 3000.0
+
+
+def test_select_best_preset_uses_precomputed_candidate_instead_of_refitting():
+    """A precomputed (model, result) pair for a ladder rung must be used
+    as-is (still passed through the guardrail/visual-equivalence checks)
+    rather than triggering a fresh _fit_full_range call -- the mechanism
+    that lets Stage 3's own fully-staged Beaucage alternative compete
+    fairly against a fully-staged Guinier-Porod winner."""
+    curve = _flat_curve(seed=9)
+    q, I = curve.q, curve.intensity
+    sigma = np.sqrt(np.abs(I)) * 0.02 + 0.1
+    model = build_preset("BG")
+    params = model.to_lmfit_parameters(seed_values={"bg_C": 500.0, "pl_B": 1e-9, "pl_p": 2.0})
+    result = model.fit(q, I, sigma=sigma, params=params)
+    windows = {"W_loq": (float(q[0]), float(q[0])), "W_peak": (float(q[0]), float(q[0])),
+              "W_hiq": (float(q[0]), float(q[-1]))}
+    # deliberately mangled precomputed BG_DAB candidate (same model class,
+    # nonsense params) -- if select_best_preset re-fit it fresh instead of
+    # using it as-is, this nonsense entry would never survive to the ladder
+    # looking the way we constructed it.
+    dab_model = build_preset("BG_DAB")
+    dab_params = dab_model.to_lmfit_parameters(seed_values={"bg_C": 500.0, "pl_B": 1e-9, "pl_p": 2.0,
+                                                            "dab_A": 1.0, "dab_xi": 50.0})
+    dab_result = dab_model.fit(q, I, sigma=sigma, params=dab_params)
+    stage6 = select_best_preset(q, I, sigma, "BG", model, result, "test", multistart_n=2,
+                                windows=windows, precomputed={"BG_DAB": (dab_model, dab_result)})
+    assert "BG_DAB" in stage6["ladder"]
+
+
+def test_fit_staged_p0bi0_chi2red_dramatically_improved_with_beaucage():
+    """Real-data regression for the v5 Beaucage wiring: composite_models.
+    BeaucageUnified existed but was never used anywhere in the staged
+    pipeline before this ticket. Hammouda's guinier_porod hard-switches
+    to a FIXED, bounded power-law asymptote (p<=4.3) at its own continuity
+    point -- but the real knee-transition region on this profile has been
+    independently measured (see _stage3_add_beaucage's own docstring) to
+    show local log-log slopes as steep as -8 to -12, steeper than any
+    fixed exponent that bounded can produce. Before this fix, the ladder's
+    best available choice (BG_GP) left P0Bi0 at chi2red~9.7; after wiring
+    Beaucage in as a fairly-staged competing candidate, it drops below 2 --
+    captured directly from a real run, not an idealized target."""
+    import os
+    path = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based\P0Bi0__corr.dat"
+    if not os.path.isfile(path):
+        pytest.skip("real SAXS data folder not present on this machine")
+    from saxs_core.loader import load_curve
+    curve = load_curve(path)
+    result = fit_staged(curve, sample_id="P0Bi0", multistart_n=6)
+    assert result.preset_chosen == "BG_BC"
+    assert result.gof["chi2red"] < 2.0
+    assert result.morphology_cls == "S"
+    assert result.no_peak is True
 
 
 def test_fit_staged_p5bi5_12_ts_accepted():
