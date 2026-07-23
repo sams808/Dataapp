@@ -40,6 +40,7 @@ DEFAULT_PREFIXES: Dict[str, str] = {
     "guinier_porod": "gp_",
     "beaucage_unified": "bu_",
     "dab": "dab_",
+    "lorentz_oz": "oz_",
     "teubner_strey": "ts_",
     "broad_peak": "bp_",
 }
@@ -47,11 +48,14 @@ DEFAULT_PREFIXES: Dict[str, str] = {
 # spec §2.2 registered composite presets (BG_TS_PL2 added in v2:
 # PRISM_fit_pipeline_upgrade_prompt.md §3 — the low-q-upturn-without-a-
 # genuine-Guinier-knee case, preferred over BG_TS_GP by the model-
-# selection ladder unless a knee is actually detected)
+# selection ladder unless a knee is actually detected; BG_TS_OZ added in
+# v3 ADDENDUM — an Ornstein-Zernike low-q tail, ladder-only between
+# BG_TS and BG_TS_PL2)
 PRESETS: Dict[str, List[str]] = {
     "BG": ["flat_background", "power_law"],
     "BG_DAB": ["flat_background", "power_law", "dab"],
     "BG_TS": ["flat_background", "power_law", "teubner_strey"],
+    "BG_TS_OZ": ["flat_background", "power_law", "teubner_strey", "lorentz_oz"],
     "BG_TS_PL2": ["flat_background", "power_law", "teubner_strey", "power_law2"],
     "BG_TS_GP": ["flat_background", "power_law", "teubner_strey", "guinier_porod"],
     "BG_BP": ["flat_background", "power_law", "broad_peak"],
@@ -160,21 +164,26 @@ class CompositeModel:
         residual_mode: str = "weighted_linear",
         **kwargs: Any,
     ) -> "lmfit.model.ModelResult":
-        """Weighted least squares by default (weights = 1/sigma when sigma
-        is given). `residual_mode="log10"` (v2: PRISM_fit_pipeline_upgrade_
-        prompt.md §1) fits log10(I_model) against log10(I_data) instead,
-        UNWEIGHTED — appropriate when sigma isn't a trustworthy Poisson-
-        consistent uncertainty (a.u.-type/rescaled intensity data, per
-        composite_staged.detect_data_type), since SAXS curves routinely
-        span many decades and a handful of high-intensity low-q points
-        would otherwise dominate a linear-weighted objective regardless of
-        how sigma is chosen. Implemented via a raw lmfit.Minimizer (not
-        Model.fit()) since fitting in log-space isn't just a weights
-        change — the RESIDUAL definition itself changes; the returned
-        MinimizerResult exposes the same .redchi/.aic/.bic/.params/
-        .residual/.ndata attributes as a Model.fit() ModelResult, so every
-        downstream caller (composite_staged.py's stage functions,
-        diagnostics) works unmodified regardless of which mode ran.
+        """Sigma-weighted linear least squares is the PRIMARY objective
+        (v3 §8: weights = 1/sigma when sigma is given) — chi2 = sum(((I -
+        model)/sigma)^2), the same statistic used for chi2red/AIC/BIC,
+        model-selection, and profile-likelihood confidence intervals
+        throughout saxs_core.composite_staged (the v3 §8.4 consistency
+        rule: one weighted statistic, one space, everywhere).
+
+        `residual_mode="log10"` fits log10(I_model) against log10(I_data)
+        instead, UNWEIGHTED. This is no longer the auto-selected default
+        for any real curve (v3 §8 removed the "arbitrary units" auto-
+        switch: every curve either carries a genuine propagated sigma or
+        gets one from composite_staged's detrended/Poisson-like estimator,
+        so a sigma-weighted linear fit is always available) — kept only
+        as an explicit, manually-invoked fallback/cross-check. Implemented
+        via a raw lmfit.Minimizer (not Model.fit()) since fitting in
+        log-space isn't just a weights change — the RESIDUAL definition
+        itself changes; the returned MinimizerResult exposes the same
+        .redchi/.aic/.bic/.params/.residual/.ndata attributes as a
+        Model.fit() ModelResult, so every downstream caller works
+        unmodified regardless of which mode ran.
 
         method="least_squares" (scipy's trust-region-reflective algorithm,
         per spec §4.5's own "lmfit/least_squares" recommendation) rather

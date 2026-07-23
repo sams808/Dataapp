@@ -116,25 +116,30 @@ def run_batch(
                     hygiene = apply_hygiene(it.curve, trim_n=trim_n)
                     q = np.asarray(hygiene.curve.q, dtype=float)
                     I = np.asarray(hygiene.curve.intensity, dtype=float)
-                    sigma = np.asarray(hygiene.curve.sigma, dtype=float)
+                    # Apply the SAME sigma_scale the baseline fit calibrated
+                    # (v3 §8.4 consistency rule) so cont_result.redchi and
+                    # baseline.gof["chi2red"] are on the same footing before
+                    # being compared just below.
+                    sigma = np.asarray(hygiene.curve.sigma, dtype=float) * baseline.sigma_scale
                     cont_result = _continuation_seeded_result(
                         prev_params, model, q, I, sigma, it.sample_id, multistart_n)
                     if cont_result is not None:
                         baseline_chi2 = baseline.gof["chi2red"]
                         if cont_result.redchi <= baseline_chi2 * chi2_degrade_factor and cont_result.redchi < baseline_chi2:
-                            diagnostics = compute_diagnostics(model, cont_result, q, baseline.windows)
+                            diagnostics = compute_diagnostics(model, cont_result, q, I, baseline.windows)
                             chosen = FitResult(
                                 sample_id=it.sample_id, preset_chosen=baseline.preset_chosen,
                                 residual_mode=baseline.residual_mode, loss=baseline.loss,
                                 windows=baseline.windows, sigma_model=baseline.sigma_model,
                                 params=_params_to_dict(cont_result.params, chi2red=float(cont_result.redchi)),
-                                derived=_build_derived(model, cont_result.params),
+                                derived=_build_derived(model, cont_result.params, pruned=baseline.pruned),
                                 gof=diagnostics["gof"],
                                 flags=baseline.flags + ["continuation_seeded"] + diagnostics["flags"],
                                 seeds_used={name: prev_params[name]["value"] for name in model.param_names()},
                                 multistart_n=multistart_n, no_peak=baseline.no_peak,
                                 stages={**baseline.stages, "continuation": {"chi2red": float(cont_result.redchi),
                                                                            "baseline_chi2red": float(baseline_chi2)}},
+                                pruned=baseline.pruned, sigma_scale=baseline.sigma_scale,
                             )
                             used_continuation = True
 

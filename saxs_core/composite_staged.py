@@ -35,6 +35,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from saxs_core.composite_fit import PRESETS, CompositeModel, build_composite
+from saxs_core.composite_models import regime_label
 from saxs_core.curve import Curve
 
 Windows = Dict[str, Tuple[float, float]]
@@ -102,42 +103,50 @@ def detect_data_type(I: np.ndarray, metadata: Optional[Dict[str, Any]] = None) -
     return "counts"
 
 
-def estimate_sigma_model_au(q: np.ndarray, I: np.ndarray, window: int = 15) -> np.ndarray:
-    """Empirical local-scatter sigma for a.u.-type data (v2 §1): a
-    Poisson-type model (sigma ~ sqrt(I)) assumes I is proportional to
-    actual photon counts, which is no longer true once intensity has been
-    background-subtracted/transmission-rescaled. Instead measure the
-    curve's OWN local point-to-point scatter in log-space (robust across
-    the many-decade dynamic range typical of SAXS) via a rolling-window
-    MAD of log10(I), converted back to a linear sigma at each point:
-    sigma_i = I_i * ln(10) * mad_log10_local, floored at 1e-3*I_i.
+def estimate_sigma_model_detrended(q: np.ndarray, I: np.ndarray, window: int = 21) -> np.ndarray:
+    """Empirical local-scatter sigma for a.u.-type data (v3 §1), replacing
+    v2's estimate_sigma_model_au. v2's version MAD'd log10(I) directly in
+    each rolling window -- on a curve with genuine local slope (any real
+    physics: a Porod tail, the flank of a peak, a Guinier/power-law
+    upturn), that slope itself inflates the "residual" the MAD measures,
+    systematically OVER-estimating sigma and (via the self-calibration
+    added alongside this function) leaving chi2red under-inflated with
+    visibly structured residuals -- exactly the P5Bi8-12 symptom this
+    ticket exists to fix.
 
-    The per-point LOCAL estimate is additionally floored at 30% of the
-    curve's median local-MAD: a narrow rolling window (15 points) can, by
-    chance, land entirely within a locally-quiet cluster and report a
-    sigma orders of magnitude below the curve's actual demonstrated noise
-    level -- concretely a problem for sparse/spiky Poisson-count data
-    (many near-zero pixels, occasional single-count spikes), where a
-    window dominated by near-identical near-floor values has a tiny MAD
-    even though the data is genuinely noisy overall. Found via the 20-
-    curve peak-free synthetic battery: a handful of curves had sigma_typ
-    ~100-600x smaller than the rest, letting the TS significance guardrail
-    (3*sigma_typ) pass trivially on pure noise -- a real false-positive
-    regression, not a hypothetical."""
+    Fix: fit a LOCAL LINEAR trend (log10 I vs log10 q, centered 21-point
+    window) and MAD the RESIDUALS FROM THAT TREND, not the raw values --
+    genuine local curve slope is absorbed by the fitted line and no longer
+    read as noise; only genuine point-to-point scatter around the local
+    trend remains. sigma_log_i = 1.4826 * MAD(local residuals);
+    sigma_i = I_i * ln(10) * sigma_log_i, floored at 1e-3*I_i.
+
+    Keeps v2's other guard: the per-point local estimate is floored at 30%
+    of the curve's median local sigma_log, so a window that (by chance)
+    lands entirely within a locally-quiet cluster can't report a sigma
+    orders of magnitude below the curve's actual demonstrated noise level
+    (the same false-positive-TS failure mode v2's own battery caught)."""
+    q = np.asarray(q, dtype=float)
     I = np.asarray(I, dtype=float)
     n = len(I)
+    log_q = np.log10(np.clip(q, 1e-300, None))
     log_I = np.log10(np.clip(I, 1e-300, None))
     win = max(3, min(int(window), n))
     half = win // 2
-    local_mad = np.empty(n, dtype=float)
+    sigma_log = np.empty(n, dtype=float)
     for i in range(n):
         lo, hi = max(0, i - half), min(n, i + half + 1)
-        seg = log_I[lo:hi]
-        med = float(np.median(seg))
-        local_mad[i] = float(np.median(np.abs(seg - med))) * 1.4826
-    global_floor = float(np.median(local_mad)) * 0.3
-    mad_log10 = np.maximum(local_mad, global_floor)
-    sigma = np.abs(I) * math.log(10.0) * mad_log10
+        xs, ys = log_q[lo:hi], log_I[lo:hi]
+        if xs.size >= 3 and np.ptp(xs) > 0:
+            slope, intercept = np.polyfit(xs, ys, 1)
+            resid = ys - (slope * xs + intercept)
+        else:
+            resid = ys - np.median(ys)
+        med = float(np.median(resid))
+        sigma_log[i] = float(np.median(np.abs(resid - med))) * 1.4826
+    global_floor = float(np.median(sigma_log)) * 0.3
+    sigma_log = np.maximum(sigma_log, global_floor)
+    sigma = np.abs(I) * math.log(10.0) * sigma_log
     floor = 1e-3 * np.clip(np.abs(I), 1e-300, None)
     return np.maximum(sigma, floor)
 
@@ -168,7 +177,7 @@ class HygieneResult:
     curve: Curve
     n_trimmed_edge: int
     n_dropped_nonfinite: int
-    sigma_model: str  # "measured" | "poisson_like_estimated" | "au_empirical_estimated"
+    sigma_model: str  # "measured" | "poisson_like_estimated" | "au_detrended_estimated"
 
 
 def apply_hygiene(curve: Curve, *, trim_n: int = 3, log_rebin: bool = False,
@@ -210,8 +219,8 @@ def apply_hygiene(curve: Curve, *, trim_n: int = 3, log_rebin: bool = False,
     if sigma is None:
         data_type = data_type_override or detect_data_type(I, curve.metadata)
         if data_type == "au":
-            sigma = estimate_sigma_model_au(q, I)
-            sigma_model = "au_empirical_estimated"
+            sigma = estimate_sigma_model_detrended(q, I)
+            sigma_model = "au_detrended_estimated"
         else:
             sigma = estimate_sigma_model(q, I)
             sigma_model = "poisson_like_estimated"
@@ -468,6 +477,55 @@ def detect_high_q_cut(q: np.ndarray, I: np.ndarray) -> Optional[float]:
     return float(q_tail[idx])
 
 
+def detect_beamstop_edge_trim(q: np.ndarray, I: np.ndarray, max_points: int = 10,
+                              min_rel_bump: float = 0.03) -> int:
+    """Auto-detect beamstop-edge/detector-shadow outliers at the LOWEST q
+    (v3 ADDENDUM §7): a partial beamstop shadow or detector-edge response
+    typically shows up as a small, LOCALIZED non-monotonic bump right at
+    q_min -- intensity RISES for a point or two before the genuine,
+    monotonic decay begins -- something no real scattering feature at the
+    very start of a q-range produces (a genuine physical curve is already
+    past whatever peak/knee it has by the time data collection starts
+    just above the beamstop, so its own intensity is expected to be
+    falling, not still rising, right at q_min).
+
+    Walks forward from q_min while intensity keeps INCREASING; the first
+    point where it turns over (I[i] >= I[i+1]) is treated as the genuine
+    local start of the real decay, and everything up to and including it
+    is dropped. `min_rel_bump` (3%) guards against ordinary counting
+    noise producing a trivial one-point uptick being misread as an
+    artifact -- verified against the real committed P5Bi8-12 fixture
+    (whose own first two points rise 7.36e8 -> 8.20e8 before falling,
+    exactly matching the ticket's stated "+1.5/+3 log-residual" outliers,
+    recovering n=2) and against every synthetic curve elsewhere in this
+    test suite (all correctly return 0 -- a genuine low-q upturn or a TS
+    peak whose own rising flank starts close to q_min, both physically
+    real features rather than artifacts, must NOT be mistaken for one;
+    an earlier local-slope-vs-distant-reference design over-triggered on
+    exactly these physically real, continuously-curving cases).
+
+    An earlier design tried comparing each point's local log-log slope to
+    a reference computed from a distant "clean interior" window -- this
+    over-triggered on any curve with genuine continuously-changing
+    curvature (a Guinier-like decay's slope steepens smoothly as q grows,
+    which looks just as "anomalous" against a distant reference as a real
+    artifact does) and under/over-triggered depending on how far into a
+    peak's own rising flank that reference window happened to land.
+    Comparing only immediate neighbors for simple non-monotonicity avoids
+    both failure modes."""
+    q = np.asarray(q, dtype=float)
+    I = np.asarray(I, dtype=float)
+    n = len(q)
+    if n < max_points + 2:
+        return 0
+    if I[1] <= I[0] * (1.0 + min_rel_bump):
+        return 0
+    i = 0
+    while i < max_points and I[i + 1] > I[i]:
+        i += 1
+    return i + 1
+
+
 def _apply_mask_regions(
     q: np.ndarray, I: np.ndarray, sigma: np.ndarray, mask_regions: List[Tuple[float, float]],
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -532,6 +590,16 @@ class FitResult:
     q_cut: Optional[float] = None
     mask_regions: List[Tuple[float, float]] = field(default_factory=list)
     pruned: List[str] = field(default_factory=list)
+    # v3 (PRISM_fit_upgrade2_prompt.md) additive fields:
+    sigma_scale: float = 1.0
+    d_ci: Optional[Tuple[float, float]] = None
+    xi_ci: Optional[Tuple[float, Optional[float]]] = None  # upper=None when xi_unidentifiable
+    xi_unidentifiable: bool = False
+    fa_bound: Optional[float] = None
+    d_peak: Optional[float] = None
+    xi_peak: Optional[float] = None
+    xi_unreliable: bool = False
+    d_unreliable: bool = False
 
     def to_json(self) -> Dict[str, Any]:
         return {
@@ -545,6 +613,12 @@ class FitResult:
             "no_peak": self.no_peak, "stages": self.stages,
             "rms_log": self.rms_log, "q_cut": self.q_cut,
             "mask_regions": [list(r) for r in self.mask_regions], "pruned": list(self.pruned),
+            "sigma_scale": self.sigma_scale,
+            "d_ci": list(self.d_ci) if self.d_ci is not None else None,
+            "xi_ci": list(self.xi_ci) if self.xi_ci is not None else None,
+            "xi_unidentifiable": self.xi_unidentifiable, "fa_bound": self.fa_bound,
+            "d_peak": self.d_peak, "xi_peak": self.xi_peak,
+            "xi_unreliable": self.xi_unreliable, "d_unreliable": self.d_unreliable,
         }
 
     @classmethod
@@ -553,6 +627,10 @@ class FitResult:
         payload["windows"] = {k: tuple(v) for k, v in payload.get("windows", {}).items()}
         if "mask_regions" in payload:
             payload["mask_regions"] = [tuple(r) for r in payload["mask_regions"]]
+        if payload.get("d_ci") is not None:
+            payload["d_ci"] = tuple(payload["d_ci"])
+        if payload.get("xi_ci") is not None:
+            payload["xi_ci"] = tuple(payload["xi_ci"])
         return cls(**payload)
 
     def save_json(self, path: str) -> None:
@@ -566,7 +644,8 @@ class FitResult:
 
     def to_csv_row(self) -> Dict[str, Any]:
         """One flat row for the batch CSV (Phase 5; v2 adds rms_log,
-        at_bounds count, q_cut, pruned)."""
+        at_bounds count, q_cut, pruned; v3 adds sigma_scale, d/xi CI-or-
+        bound columns, and the xi/d reliability flags)."""
         row: Dict[str, Any] = {
             "sample_id": self.sample_id, "preset_chosen": self.preset_chosen,
             "residual_mode": self.residual_mode, "loss": self.loss,
@@ -575,6 +654,14 @@ class FitResult:
             "timestamp": self.timestamp, "rms_log": self.rms_log, "q_cut": self.q_cut,
             "pruned": ";".join(self.pruned),
             "at_bounds": sum(1 for f in self.flags if f.startswith("at_bound:")),
+            "sigma_scale": self.sigma_scale,
+            "d_ci_lo": self.d_ci[0] if self.d_ci is not None else None,
+            "d_ci_hi": self.d_ci[1] if self.d_ci is not None else None,
+            "xi_ci_lo": self.xi_ci[0] if self.xi_ci is not None else None,
+            "xi_ci_hi": self.xi_ci[1] if self.xi_ci is not None else None,
+            "xi_unidentifiable": self.xi_unidentifiable, "fa_bound": self.fa_bound,
+            "d_peak": self.d_peak, "xi_peak": self.xi_peak,
+            "xi_unreliable": self.xi_unreliable, "d_unreliable": self.d_unreliable,
         }
         row.update({f"gof_{k}": v for k, v in self.gof.items()})
         row.update({f"derived_{k}": v for k, v in self.derived.items() if not isinstance(v, dict)})
@@ -598,14 +685,26 @@ def _params_to_dict(lmfit_params: Any, chi2red: Optional[float] = None) -> Dict[
     return out
 
 
-def _build_derived(model: CompositeModel, result_params: Any) -> Dict[str, Any]:
+def _build_derived(model: CompositeModel, result_params: Any,
+                   pruned: Optional[List[str]] = None) -> Dict[str, Any]:
     """Per-component derived() (nested) PLUS the spec's flat, named
-    top-level aliases (d, xi, fa, q_max, a2, c1, c2, Rg, p_pl, p_gp) —
-    whichever of those are actually present in this composite."""
-    nested = model.derived(result_params)
-    flat: Dict[str, Any] = {"components": nested}
+    top-level aliases (d, xi, fa, q_max, a2, c1, c2, Rg, p_pl, p_gp, p_pl2,
+    xiL_oz) — whichever of those are actually present in this composite.
+
+    `pruned` (v3 §5) is a list of COMPONENT NAMES (e.g. "power_law")
+    Stage 1's prune-and-refit froze to a negligible contribution -- their
+    values are never displayed here, structurally, not just filtered at
+    the report layer (they're still nominally present in the model, but
+    carry no real physical information once pruned: the previous behavior
+    of showing e.g. p_pl despite "power_law" being pruned was confusing,
+    reported as a real bug in v3 §5)."""
+    pruned_set = set(pruned or [])
+    nested_all = model.derived(result_params)
     prefixes = {prefix.rstrip("_") or comp.name: (prefix, comp.name) for prefix, comp in model.components}
-    if "ts" in prefixes:
+    nested = {key: nested_all[key] for key, (_, name) in prefixes.items()
+             if name not in pruned_set and key in nested_all}
+    flat: Dict[str, Any] = {"components": nested}
+    if "ts" in prefixes and prefixes["ts"][1] not in pruned_set:
         prefix, _ = prefixes["ts"]
         flat["d"] = result_params[prefix + "d"].value
         flat["xi"] = result_params[prefix + "xi"].value
@@ -615,13 +714,21 @@ def _build_derived(model: CompositeModel, result_params: Any) -> Dict[str, Any]:
         flat["a2"] = ts_derived.get("a2")
         flat["c1"] = ts_derived.get("c1")
         flat["c2"] = ts_derived.get("c2")
-    if "pl" in prefixes:
+    if "pl" in prefixes and prefixes["pl"][1] not in pruned_set:
         prefix, _ = prefixes["pl"]
         flat["p_pl"] = result_params[prefix + "p"].value
-    if "gp" in prefixes:
+    if "gp" in prefixes and prefixes["gp"][1] not in pruned_set:
         prefix, _ = prefixes["gp"]
         flat["Rg"] = result_params[prefix + "Rg"].value
         flat["p_gp"] = result_params[prefix + "p"].value
+    if "pl2" in prefixes and prefixes["pl2"][1] not in pruned_set:
+        prefix, _ = prefixes["pl2"]
+        p2_value = result_params[prefix + "p2"].value
+        flat["p_pl2"] = p2_value
+        flat["pl2_regime"] = regime_label(p2_value)
+    if "oz" in prefixes and prefixes["oz"][1] not in pruned_set:
+        prefix, _ = prefixes["oz"]
+        flat["xiL_oz"] = result_params[prefix + "xiL"].value
     return flat
 
 
@@ -679,6 +786,12 @@ def _stage1_bg(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows
     — Stage 2/3/4's existing code all assumes pl_B/pl_p exist, and this
     keeps that contract intact while achieving the same scientific outcome
     ("no power-law term"). Recorded in the returned dict's "pruned" list.
+
+    v3 §8.3: this fit IS the "featureless high-q plateau" fit the sigma
+    self-calibration factor `s` is derived from (fit_staged computes
+    chi2red from this exact result before deciding whether to rescale
+    sigma) -- keep this stage's own weighting/masking behavior stable
+    since the calibration's meaning depends on it.
     """
     model = build_composite(["flat_background", "power_law"])
     mask = _mask_for(q, windows, ("W_hiq",))
@@ -853,15 +966,44 @@ def _stage3_add_pl2(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Wi
                     prev: Dict[str, Any], had_ts: bool,
                     residual_mode: str = "weighted_linear") -> Optional[Dict[str, Any]]:
     """The no-knee counterpart of _stage3_add_gp (v2 §3): fits power_law2
-    instead of guinier_porod for the low-q role."""
+    instead of guinier_porod for the low-q role.
+
+    v3 §4 (pl2 stabilization): the fitting mask is q < 0.6*W_peak_lo
+    (a tighter, cleaner-upturn-only region than W_loq, computed directly
+    from the peak window's own low edge) rather than W_loq -- W_loq's
+    upper edge sits AT W_peak's low edge by construction (see
+    propose_windows), so it can include peak-flank points that bias the
+    low-q-only pl2 fit. p2 is seeded at 3.7 regardless of the component's
+    own log-log-regression seed, per the ticket's explicit instruction --
+    intended to land the Stage-4 global release (which then typically
+    freezes p2, see fit_staged's pl2-sensitivity check) on a stable,
+    reproducible starting point rather than whatever a possibly-noisy
+    local regression happens to produce on a short, steep window.
+
+    Falls back to W_loq when 0.6*W_peak_lo yields too few points -- this
+    instrument's real peaks (large xi) routinely sit close to q_min (an
+    established property throughout this module, see propose_windows'
+    own W_peak_lo formula), which for many real/synthetic curves pushes
+    0.6*W_peak_lo BELOW q_min entirely (zero points, not just "few").
+    Skipping Stage 3 outright in that case would silently drop a real
+    low-q feature from the model (confirmed on the real P5Bi8-12 profile
+    itself, whose low-q tail is exactly what the v3 ADDENDUM's OZ
+    component exists to fit) rather than the "clean, peak-free window"
+    the tighter mask is meant to provide when the data geometry allows
+    it -- falling back to the wider, already-established W_loq window
+    is a strictly better outcome than no low-q component at all."""
     prev_names = ["flat_background", "power_law"] + (["teubner_strey"] if had_ts else [])
     model = build_composite(prev_names + ["power_law2"])
-    mask = _mask_for(q, windows, ("W_loq",))
+    peak_lo = windows.get("W_peak", (float(np.max(q)) if q.size else 1.0, 0.0))[0]
+    mask = q < (0.6 * peak_lo)
+    if int(mask.sum()) < 5:
+        mask = _mask_for(q, windows, ("W_loq",))
     if int(mask.sum()) < 5:
         return None
     frozen = prev["result"].params
     seed_values = {name: frozen[name].value for name in frozen}
     pl2_seed = model.components[-1][1].seed(q[mask], I[mask], windows)
+    pl2_seed["p2"] = 3.7
     seed_values.update({f"pl2_{k}": v for k, v in pl2_seed.items()})
     params = model.to_lmfit_parameters(seed_values=seed_values)
     for name in frozen:
@@ -961,6 +1103,35 @@ def _durbin_watson(residual_normalized: np.ndarray) -> float:
     return float(np.sum(np.diff(r) ** 2) / denom)
 
 
+def cormap_longest_run(residual: np.ndarray) -> Tuple[int, float]:
+    """CorMap-style sigma-free structure diagnostic (v3 §8.5; Franke,
+    Jeffries & Svergun 2015, Nat. Methods 12, 419): the longest run of
+    consecutive same-sign residuals, and its approximate one-sided
+    p-value under the null that residual signs are iid coin flips (the
+    standard longest-run-of-heads asymptotic, Schilling 1990): for n
+    trials, P(longest run >= C) ~= 1 - exp(-(n-C+1)/2^C). A small p-value
+    means the observed run is longer than chance alone would produce --
+    real structure in the residuals -- independent of whatever sigma was
+    used to fit, a useful cross-check alongside Durbin-Watson."""
+    s = np.sign(np.asarray(residual, dtype=float))
+    s = s[s != 0]
+    n = int(s.size)
+    if n < 2:
+        return 0, 1.0
+    longest = 1
+    current = 1
+    for i in range(1, n):
+        if s[i] == s[i - 1]:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 1
+    if longest > 60:  # 2**60 overflows float precision meaningfully; p ~ 0 anyway
+        return longest, 0.0
+    p = 1.0 - math.exp(-(n - longest + 1) / (2.0 ** longest))
+    return longest, float(np.clip(p, 0.0, 1.0))
+
+
 def _correlation_flags(result: Any, threshold: float = 0.95) -> List[str]:
     """Flag any pair of varying parameters with |correlation| > threshold
     (lmfit computes result.params[name].correl automatically once stderrs
@@ -1013,6 +1184,9 @@ def compute_diagnostics(model: CompositeModel, result: Any, q: np.ndarray, I: np
     flags: List[str] = []
     if np.isfinite(dw) and dw < 1.3:
         flags.append(f"low_durbin_watson:{dw:.2f}")
+    cormap_run, cormap_p = cormap_longest_run(np.asarray(result.residual, dtype=float))
+    if cormap_p < 0.05:
+        flags.append(f"cormap_structured:run={cormap_run}:p={cormap_p:.3g}")
     flags.extend(_correlation_flags(result))
     flags.extend(_at_bound_flags(result))
 
@@ -1038,7 +1212,42 @@ def compute_diagnostics(model: CompositeModel, result: Any, q: np.ndarray, I: np
 
     gof = _gof(model, result, q, I)
     gof["durbin_watson"] = dw
+    gof["cormap_longest_run"] = cormap_run
+    gof["cormap_pvalue"] = cormap_p
     return {"gof": gof, "flags": flags}
+
+
+def median_log_residual_by_window(model: CompositeModel, result_params: Any,
+                                  q: np.ndarray, I: np.ndarray, windows: Windows) -> Dict[str, float]:
+    """|median log10 residual| within each of W_loq/W_peak/W_hiq (v3
+    ADDENDUM §7's visual-equivalence check) -- a window with too few
+    points (<5, matching the "insufficient window" bar used elsewhere in
+    this module for Stage 3's own fits) is simply absent from the
+    returned dict, rather than gating model selection on a median of a
+    literal handful of points where a single noisy sample can trip the
+    threshold regardless of whether the model is actually right there."""
+    q = np.asarray(q, dtype=float)
+    I = np.asarray(I, dtype=float)
+    total = model.eval(q, result_params)
+    resid = np.log10(np.clip(total, 1e-300, None)) - np.log10(np.clip(I, 1e-300, None))
+    out: Dict[str, float] = {}
+    for key in ("W_loq", "W_peak", "W_hiq"):
+        m = _mask_for(q, windows, (key,))
+        if int(m.sum()) >= 5:
+            out[key] = float(np.median(np.abs(resid[m])))
+    return out
+
+
+def visual_equivalence_ok(model: CompositeModel, result: Any, q: np.ndarray, I: np.ndarray,
+                          windows: Windows, threshold: float = 0.15) -> Tuple[bool, Dict[str, float]]:
+    """v3 ADDENDUM §7: a candidate whose |median log10 residual| is >=
+    threshold in ANY of W_loq (post beamstop-trim)/W_peak/W_hiq visibly
+    doesn't describe that region of the curve regardless of how good its
+    BIC looks overall -- treated as a hard gate, not a soft flag, in the
+    model-selection ladder (select_best_preset)."""
+    medians = median_log_residual_by_window(model, result.params, q, I, windows)
+    ok = all(v < threshold for v in medians.values())
+    return ok, medians
 
 
 # =============================================================================
@@ -1087,23 +1296,39 @@ def select_best_preset(
     sample_id: str, multistart_n: int, residual_mode: str = "weighted_linear",
     had_ts: bool = False, has_knee: bool = False, windows: Optional[Windows] = None,
 ) -> Dict[str, Any]:
-    """Spec §4.2 Stage 6, extended per v2 §3: the ladder is
-    BG -> BG_DAB -> BG_TS -> BG_TS_PL2 -> BG_TS_GP, where BG_TS/BG_TS_PL2
-    only enter the walk when stages 1-4 actually found a significant TS
-    peak (`had_ts`), and BG_TS_GP only enters when a genuine Guinier knee
-    was ALSO detected (`has_knee`) -- otherwise BG_TS_PL2 (a plain low-q
-    power law, appropriate for the common powder-grinding-scattering case)
-    is the richest candidate offered. Primary criterion is ΔBIC > 10
+    """Spec §4.2 Stage 6, extended per v2 §3 and v3 ADDENDUM §7: the ladder
+    is BG -> BG_DAB -> BG_TS -> BG_TS_OZ -> BG_TS_PL2 -> BG_TS_GP, where
+    BG_TS/BG_TS_OZ/BG_TS_PL2 only enter the walk when stages 1-4 actually
+    found a significant TS peak (`had_ts`), and BG_TS_GP only enters when
+    a genuine Guinier knee was ALSO detected (`has_knee`) -- otherwise
+    BG_TS_OZ/BG_TS_PL2 (an Ornstein-Zernike tail or a plain low-q power
+    law) are the richest candidates offered. Primary criterion is ΔBIC>10
     (lower BIC wins); ΔAIC is cross-checked and any disagreement is
     recorded, but BIC always decides ties (spec's own explicit tiebreak).
     Whatever stages 1-4 already assembled (`assembled_name`) is reused
     as-is rather than re-fit from scratch when it coincides with one of
     these rungs (it usually does) -- only the OTHER rungs get a fresh
-    `_fit_full_range` call."""
+    `_fit_full_range` call.
+
+    Every candidate (not just TS-containing ones) must ALSO clear the v3
+    ADDENDUM §7 visual-equivalence gate (|median log10 residual| < 0.15 in
+    each of W_loq/W_peak/W_hiq) -- a candidate that fits the BIC criterion
+    but is visibly wrong in some window is rejected exactly like a
+    guardrail failure, and the ladder walk continues to the next rung.
+    If literally EVERY candidate fails this gate (only possible when the
+    data itself has more structure than any composite in this library can
+    capture to that precision), falling back to plain BG would make
+    things WORSE, not better -- BG is invariably the crudest, highest-
+    chi2red option of the lot. Instead the single best-BIC candidate
+    among everything actually tried (gate-passing or not) is reported,
+    flagged `visual_equivalence_gate_bypassed` so this is never silent —
+    reporting the best AVAILABLE description of the data, honestly
+    flagged, beats reporting a worse one just to satisfy the gate."""
     candidates: Dict[str, Tuple[CompositeModel, Any]] = {}
+    all_attempts: Dict[str, Tuple[CompositeModel, Any]] = {}
     ladder: Dict[str, Any] = {}
 
-    def _passes_guardrail(name: str, component_names: List[str], result: Any) -> bool:
+    def _passes_guardrail(name: str, component_names: List[str], model: CompositeModel, result: Any) -> bool:
         """A TS-containing ladder candidate must ALSO clear
         ts_guardrail_ok's significance/sanity check, exactly like the
         originally-staged model does in Stage 2 -- these fresh candidates
@@ -1114,45 +1339,68 @@ def select_best_preset(
         nonsensical one (found via the 20-curve peak-free synthetic
         battery: a spurious candidate with d~20-25 Å and xi pinned at its
         bound still won on BIC alone, a real regression from adding these
-        extra rungs in v2 without carrying the guardrail along)."""
-        if "teubner_strey" not in component_names or not windows:
-            return True
-        ok, reason = ts_guardrail_ok(result, sigma, windows)
-        if not ok:
-            ladder[name] = {"bic": float(result.bic), "aic": float(result.aic), "rejected": reason}
-        return ok
+        extra rungs in v2 without carrying the guardrail along).
+
+        Then EVERY candidate (TS-containing or not) must clear the v3
+        ADDENDUM §7 visual-equivalence gate."""
+        all_attempts[name] = (model, result)
+        entry: Dict[str, Any] = {"bic": float(result.bic), "aic": float(result.aic),
+                                 "rms_log": _rms_log10(model, result.params, q, I)}
+        if "teubner_strey" in component_names and windows:
+            ok, reason = ts_guardrail_ok(result, sigma, windows)
+            if not ok:
+                entry["rejected"] = reason
+                ladder[name] = entry
+                return False
+        if windows:
+            veq_ok, medians = visual_equivalence_ok(model, result, q, I, windows)
+            if not veq_ok:
+                entry["rejected"] = "visual_equivalence_fail"
+                entry["window_medians"] = medians
+                ladder[name] = entry
+                return False
+        ladder[name] = entry
+        return True
 
     assembled_components = [comp.name for _, comp in assembled_model.components]
-    if _passes_guardrail(assembled_name, assembled_components, assembled_result):
+    if _passes_guardrail(assembled_name, assembled_components, assembled_model, assembled_result):
         candidates[assembled_name] = (assembled_model, assembled_result)
-        ladder[assembled_name] = {"bic": float(assembled_result.bic), "aic": float(assembled_result.aic)}
 
     def _ensure(name: str, component_names: List[str]) -> bool:
         if name in candidates:
             return True
-        if name in ladder:  # already tried and guardrail-rejected
+        if name in ladder:  # already tried and guardrail/visual-equivalence-rejected
             return False
         fit = _fit_full_range(component_names, q, I, sigma, sample_id, multistart_n,
                               residual_mode=residual_mode, windows=windows)
         result = fit["result"]
-        if not _passes_guardrail(name, component_names, result):
+        if not _passes_guardrail(name, component_names, fit["model"], result):
             return False
         candidates[name] = (fit["model"], result)
-        ladder[name] = {"bic": float(result.bic), "aic": float(result.aic)}
         return True
 
-    _ensure("BG", ["flat_background", "power_law"])
-    _ensure("BG_DAB", ["flat_background", "power_law", "dab"])
-    order = ["BG", "BG_DAB"]
+    order: List[str] = []
+    if _ensure("BG", ["flat_background", "power_law"]):
+        order.append("BG")
+    if _ensure("BG_DAB", ["flat_background", "power_law", "dab"]):
+        order.append("BG_DAB")
     if had_ts:
         if _ensure("BG_TS", ["flat_background", "power_law", "teubner_strey"]):
             order.append("BG_TS")
+        if _ensure("BG_TS_OZ", ["flat_background", "power_law", "teubner_strey", "lorentz_oz"]):
+            order.append("BG_TS_OZ")
         if _ensure("BG_TS_PL2", ["flat_background", "power_law", "teubner_strey", "power_law2"]):
             order.append("BG_TS_PL2")
         if has_knee and _ensure("BG_TS_GP", ["flat_background", "power_law", "teubner_strey", "guinier_porod"]):
             order.append("BG_TS_GP")
     if assembled_name not in order and assembled_name in candidates:
         order.append(assembled_name)
+
+    if not order:
+        best_name = min(all_attempts, key=lambda name: all_attempts[name][1].bic)
+        candidates[best_name] = all_attempts[best_name]
+        ladder["visual_equivalence_gate_bypassed"] = best_name
+        order = [best_name]
 
     bics = {name: candidates[name][1].bic for name in order}
     aics = {name: candidates[name][1].aic for name in order}
@@ -1166,13 +1414,271 @@ def select_best_preset(
 
 # v2 §4: "two or more at-bound params => auto-suggest the next-simpler
 # preset from the ladder" -- the ladder's own order, one step back.
+# v3 ADDENDUM §7 inserts BG_TS_OZ between BG_TS and BG_TS_PL2.
 _SIMPLER_PRESET = {
     "BG_TS_GP": "BG_TS_PL2",
-    "BG_TS_PL2": "BG_TS",
+    "BG_TS_PL2": "BG_TS_OZ",
+    "BG_TS_OZ": "BG_TS",
     "BG_TS": "BG_DAB",
     "BG_DAB": "BG",
     "BG": "BG",
 }
+
+
+# =============================================================================
+# v3 §4 — pl2 sensitivity check (freeze p2 for the global stage unless
+# releasing it materially improves the fit)
+# =============================================================================
+
+def _pl2_sensitive(model: CompositeModel, best_values: Dict[str, float],
+                   q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
+                   residual_mode: str = "weighted_linear") -> bool:
+    """v3 §4: 'FREEZE p2 for the global stage (release only if its profile
+    shows sensitivity)'. Lightweight, cheap check: nudge pl2_p2 +/-10% from
+    its Stage-3 value, refit everything else once at each nudge, and see
+    if chi2 changes non-trivially (>5% relative). If not, freezing p2 loses
+    nothing scientifically and kills the pl2_B2~pl2_p2 anti-correlation
+    that was leaking into the fitted TS width (the ticket's stated goal);
+    if chi2 DOES change meaningfully, p2 carries real information the
+    global fit needs and should stay free. Defaults to "release" (True)
+    if the baseline fit itself fails, since freezing an untested parameter
+    is the riskier default."""
+    p2_val = best_values.get("pl2_p2")
+    if p2_val is None or p2_val <= 0:
+        return False
+    base_params = model.to_lmfit_parameters(seed_values=best_values)
+    try:
+        base_result = model.fit(q, I, sigma=sigma, params=base_params, residual_mode=residual_mode)
+        base_chi2 = float(base_result.chisqr)
+    except Exception:
+        return True
+    if not (math.isfinite(base_chi2) and base_chi2 > 0):
+        return True
+    for factor in (0.9, 1.1):
+        trial_values = dict(best_values)
+        trial_values["pl2_p2"] = p2_val * factor
+        params = model.to_lmfit_parameters(seed_values=trial_values, vary_overrides={"pl2_p2": False})
+        try:
+            r = model.fit(q, I, sigma=sigma, params=params, residual_mode=residual_mode)
+        except Exception:
+            continue
+        if abs(float(r.chisqr) - base_chi2) / base_chi2 > 0.05:
+            return True
+    return False
+
+
+# =============================================================================
+# v3 §3 — Stage 2b: peak-focused cross-check
+# =============================================================================
+
+_TS_PARAM_NAMES = ("ts_S", "ts_d", "ts_xi")
+
+
+def stage2b_peak_crosscheck(
+    model: CompositeModel, final_result: Any, q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
+    windows: Windows, residual_mode: str = "weighted_linear",
+) -> Optional[Dict[str, Any]]:
+    """v3 §3: after the global fit, refit ONLY the TS parameters (S/d/xi)
+    on W_peak with every other component FROZEN at its global best-fit
+    value, mirroring _stage4_global's own fixed_params/vary_overrides
+    mechanism. A cross-check on the peak region alone, independent of
+    whatever the low-q/high-q components are doing globally -- if d/xi
+    move a lot once everything else is held fixed and only the peak's own
+    local shape is fit, the global values are less trustworthy than they
+    look."""
+    if "ts_d" not in final_result.params or "ts_xi" not in final_result.params:
+        return None
+    mask = _mask_for(q, windows, ("W_peak",))
+    if int(mask.sum()) < 5:
+        return None
+    vary_overrides = {name: (name in _TS_PARAM_NAMES) for name in final_result.params}
+    seed_values = {name: final_result.params[name].value for name in final_result.params}
+    params = model.to_lmfit_parameters(seed_values=seed_values, vary_overrides=vary_overrides)
+    for name in final_result.params:
+        if name not in _TS_PARAM_NAMES:
+            model.fix(params, name, final_result.params[name].value)
+    try:
+        result = model.fit(q[mask], I[mask], sigma=sigma[mask], params=params, residual_mode=residual_mode)
+    except Exception:
+        return None
+    return {"result": result, "mask": mask}
+
+
+# =============================================================================
+# v3 §2 — Profile-likelihood confidence intervals for ts_d / ts_xi
+# =============================================================================
+
+def _find_crossing(xs: np.ndarray, ys: np.ndarray, threshold: float) -> Optional[float]:
+    """`xs` ordered from closest-to-best (index 0) outward; returns the
+    linearly-interpolated x where `ys` first crosses `threshold` moving
+    outward, or None if it never does within the given range."""
+    for i in range(len(xs) - 1):
+        y0, y1 = ys[i], ys[i + 1]
+        if not (np.isfinite(y0) and np.isfinite(y1)):
+            continue
+        if y0 < threshold <= y1:
+            frac = (threshold - y0) / (y1 - y0) if y1 != y0 else 0.0
+            return float(xs[i] + frac * (xs[i + 1] - xs[i]))
+    return None
+
+
+def _profile_delta_chi2(
+    model: CompositeModel, best_result: Any, q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
+    param_name: str, grid: np.ndarray, residual_mode: str,
+) -> np.ndarray:
+    """Delta-chi2(grid point) vs. the global minimum, refitting every
+    OTHER free parameter per grid point from the current best values -- a
+    SMALL local multistart (3 tries: unperturbed + 2 mildly-perturbed
+    restarts, keeping the lowest chi2), not a full production multistart
+    burst (25 grid points x a full multistart each would be prohibitively
+    expensive per sample for no real gain, since the global stage already
+    did a proper multistart). The small multistart matters in practice:
+    a single unperturbed local refit was found (via a synthetic BG_TS_PL2
+    curve with a near-perfect pl2_B2~pl2_p2 anti-correlation, rho~-1.0) to
+    occasionally get stuck in a much worse local configuration for a
+    slightly-off grid value, producing a Delta-chi2 that jumps from ~0 to
+    billions within a single grid step for a parameter that's actually
+    perfectly well-behaved -- a fragile-optimizer artifact, not a real
+    statistical feature of the fit."""
+    best_chi2 = float(best_result.chisqr)
+    dchi = np.full(len(grid), np.nan)
+    base_values = {n: best_result.params[n].value for n in best_result.params}
+    rng = np.random.default_rng(0)
+    for i, val in enumerate(grid):
+        if param_name not in best_result.params:
+            continue
+        best_trial_chi2 = None
+        for attempt in range(3):
+            perturbed = base_values if attempt == 0 else {
+                n: (v * math.exp(rng.uniform(-0.15, 0.15)) if v > 0 else v) for n, v in base_values.items()
+            }
+            trial = model.to_lmfit_parameters(seed_values=perturbed)
+            for n in best_result.params:
+                p = best_result.params[n]
+                trial[n].set(min=p.min, max=p.max, vary=p.vary)
+            trial[param_name].set(value=float(val), vary=False)
+            try:
+                r = model.fit(q, I, sigma=sigma, params=trial, residual_mode=residual_mode)
+                if best_trial_chi2 is None or float(r.chisqr) < best_trial_chi2:
+                    best_trial_chi2 = float(r.chisqr)
+            except Exception:
+                continue
+        if best_trial_chi2 is not None:
+            dchi[i] = best_trial_chi2 - best_chi2
+    return dchi
+
+
+def _ci_from_profile(best_value: float, grid: np.ndarray, dchi: np.ndarray,
+                     threshold: float = 1.0) -> Tuple[Optional[float], Optional[float]]:
+    """Split the grid at `best_value` into a below-side and an above-side,
+    each walked OUTWARD from the best value, and find where Delta-chi2
+    crosses `threshold` on each side independently.
+
+    Both sides are explicitly anchored at (best_value, 0.0) rather than
+    relying on the grid itself containing an exact duplicate of
+    best_value: the grid is built via geomspace/linspace from best_value,
+    but floating-point rounding in that construction means its "middle"
+    point can differ from best_value by a tiny epsilon. Without this
+    anchor, that epsilon can push the true best-value point onto the
+    WRONG side of a `<=`/`>=` split, leaving the correct side with a run
+    of far-away, all-identical (clipped) grid values and no point near
+    the actual minimum to interpolate from -- silently returning None
+    for a perfectly well-identified parameter (found via a synthetic
+    curve with a very tightly-constrained xi, where floating-point noise
+    alone was enough to trigger this)."""
+    order = np.argsort(grid)
+    g, d = grid[order], dchi[order]
+    below_mask = g < best_value
+    above_mask = g > best_value
+    below_g = np.concatenate(([best_value], g[below_mask][::-1]))
+    below_d = np.concatenate(([0.0], d[below_mask][::-1]))
+    lower = _find_crossing(below_g, below_d, threshold) if len(below_g) >= 2 else None
+    above_g = np.concatenate(([best_value], g[above_mask]))
+    above_d = np.concatenate(([0.0], d[above_mask]))
+    upper = _find_crossing(above_g, above_d, threshold) if len(above_g) >= 2 else None
+    return lower, upper
+
+
+_CHI2_95_ONE_PARAM = 3.841458820694124  # scipy.stats.chi2.ppf(0.95, df=1)
+
+
+def compute_ts_profile_likelihood_cis(
+    model: CompositeModel, best_result: Any, q: np.ndarray, I: np.ndarray, sigma: np.ndarray,
+    residual_mode: str = "weighted_linear",
+) -> Dict[str, Any]:
+    """v3 §2: profile-likelihood CIs for ts_d (+/-15%, 25 linear grid
+    points) and ts_xi (x/รท4, 25 log-spaced grid points), CI = where
+    Delta-chi2 crosses a threshold (using whatever calibrated sigma the
+    caller passes in -- the v3 §8.4 consistency rule: same weighted
+    statistic used for the optimizer, chi2red/AIC/BIC, ladder selection,
+    AND these intervals). Returns {} when ts_d/ts_xi aren't in the model
+    at all.
+
+    Threshold = 3.841 (the one-parameter, 95%-confidence chi-square
+    critical value, matching the ticket's own explicit "(95%)" label for
+    the xi_unidentifiable report text) times max(1, chi2red_min) -- the
+    latter factor is the standard correction (matching MINUIT/Numerical-
+    Recipes practice) for a fit whose overall chi2red is still >>1 even
+    after sigma self-calibration. A flat Delta-chi2=3.841 alone implicitly
+    assumes the sigma scale is already correct EVERYWHERE, but a global
+    plateau-based calibration (v3 §8.3) can leave regions with
+    additional unmodeled structure (a real TS peak riding on a complex
+    low-q feature, say) still locally under/over-weighted; scaling the
+    threshold by chi2red_min keeps the interval's RELATIVE shape
+    meaningful without pretending the absolute calibration is perfect
+    everywhere. Confirmed empirically necessary on the real P5Bi8-12 fit
+    (chi2red_min ~140): a flat threshold of 1 made even a compensating
+    single-point grid step (~1% away from best) look many-sigma
+    significant, producing an absurdly-tight, physically meaningless CI.
+
+    xi_unidentifiable (v3 §2) is set when the upper-side profile never
+    crosses the threshold within the grid, OR the crossing found lands
+    within 1% of ts_xi's own hard upper bound -- either way, the data
+    can't rule out an arbitrarily large xi, so it's reported as a lower
+    bound ("xi > lower_ci") rather than a point value. fa_bound follows:
+    since |fa| increases monotonically toward 1 as xi -> infinity (fa's
+    own formula is a strictly monotonic function of xi at fixed d), an
+    unidentifiable upper xi means the TRUE fa is bounded by whatever fa
+    would be at (d_best, xi_lower_ci) -- reported as `fa < that value`."""
+    from saxs_core.composite_models import ts_classic_from_physical
+    names = best_result.params
+    if "ts_d" not in names or "ts_xi" not in names:
+        return {}
+    d_best = float(names["ts_d"].value)
+    xi_best = float(names["ts_xi"].value)
+    d_lo_b, d_hi_b = float(names["ts_d"].min), float(names["ts_d"].max)
+    xi_lo_b, xi_hi_b = float(names["ts_xi"].min), float(names["ts_xi"].max)
+    chi2red_min = float(best_result.redchi) if math.isfinite(best_result.redchi) else 1.0
+    threshold = _CHI2_95_ONE_PARAM * max(1.0, chi2red_min)
+
+    d_grid = np.clip(np.linspace(d_best * 0.85, d_best * 1.15, 25), d_lo_b, d_hi_b)
+    xi_grid = np.clip(np.geomspace(max(xi_best / 4.0, 1e-6), xi_best * 4.0, 25), xi_lo_b, xi_hi_b)
+
+    d_dchi = _profile_delta_chi2(model, best_result, q, I, sigma, "ts_d", d_grid, residual_mode)
+    d_lower, d_upper = _ci_from_profile(d_best, d_grid, d_dchi, threshold=threshold)
+
+    xi_dchi = _profile_delta_chi2(model, best_result, q, I, sigma, "ts_xi", xi_grid, residual_mode)
+    xi_lower, xi_upper = _ci_from_profile(xi_best, xi_grid, xi_dchi, threshold=threshold)
+
+    xi_unidentifiable = xi_upper is None or (
+        xi_hi_b > 0 and abs(xi_upper - xi_hi_b) <= 0.01 * xi_hi_b
+    )
+
+    out: Dict[str, Any] = {
+        "d_ci": (d_lower, d_upper) if (d_lower is not None and d_upper is not None) else None,
+        "xi_unidentifiable": xi_unidentifiable,
+    }
+    if xi_unidentifiable:
+        out["xi_ci"] = (xi_lower, None) if xi_lower is not None else None
+        if xi_lower is not None:
+            a2, c1, c2 = ts_classic_from_physical(d_best, xi_lower)
+            out["fa_bound"] = c1 / math.sqrt(4.0 * a2 * c2)
+        else:
+            out["fa_bound"] = None
+    else:
+        out["xi_ci"] = (xi_lower, xi_upper) if (xi_lower is not None and xi_upper is not None) else None
+        out["fa_bound"] = None
+    return out
 
 
 # =============================================================================
@@ -1199,26 +1705,39 @@ def fit_staged(
     best composite assembled so far — the returned FitResult always
     reflects SOME valid fit, down to BG alone in the worst case.
 
-    `residual_mode=None` (the default) auto-picks per v2 §1: "log10" when
-    detect_data_type(I) == "au" (arbitrary-unit/rescaled intensity, where
-    a linear-weighted objective is dominated by whichever points happen to
-    carry the largest absolute magnitude regardless of sigma), else
-    "weighted_linear". Pass an explicit value to override.
+    `residual_mode=None` (the default) picks per v3 §8.1/8.2: "weighted_
+    linear" (the sigma-weighted linear objective, now primary) whenever
+    the curve carries a genuinely measured/propagated sigma column (see
+    apply_hygiene/FitResult.sigma_model=="measured"); "log10" (unweighted
+    log-residual fitting) as the explicit last-resort fallback when the
+    curve has NO sigma at all and one had to be ESTIMATED (Poisson-like
+    for genuine counts data, detrended-MAD otherwise) -- an estimated
+    sigma is a rough approximation that can itself be biased over a
+    region the current composite doesn't yet model, letting that region
+    dominate a weighted-linear objective out of proportion to its real
+    reliability; log10 residuals are immune to this regardless of sigma
+    quality. This replaces v2's "arbitrary units" auto-switch, which keyed
+    off the DATA's own shape rather than whether a trustworthy sigma
+    actually exists. Pass an explicit `residual_mode` to override either
+    way.
 
     `data_type` ("counts" or "au") overrides detect_data_type's own
-    inference for BOTH the sigma-estimation fallback (apply_hygiene) and
-    residual_mode's default -- for a caller that knows the data's true
-    nature better than the generic heuristic can (e.g. a curve that's
-    genuinely Poisson-counting-consistent but happens to look non-integer
-    purely from a unit rescaling). Passing an explicit `residual_mode`
-    still overrides the FITTING objective independently of this.
+    inference for the sigma-estimation fallback in apply_hygiene (only
+    relevant when the curve has no measured sigma at all) -- for a caller
+    that knows the data's true nature better than the generic heuristic
+    can (e.g. a curve that's genuinely Poisson-counting-consistent but
+    happens to look non-integer purely from a unit rescaling).
 
     `mask_regions=None` (v2 §2) auto-detects a rising high-q tail via
     detect_high_q_cut and excludes [q_cut, q_max] from every stage; pass
     an explicit list of [lo,hi] exclude ranges to override (an empty list
     disables masking entirely). Either way the ranges actually used are
     recorded in FitResult.mask_regions/stages['stage0'] for provenance —
-    always visible/editable by the caller, never silently applied.
+    always visible/editable by the caller, never silently applied. A
+    beamstop-edge trim (v3 ADDENDUM §7) additionally drops up to 10 points
+    from the LOW-q end when their local slope departs from the interior's
+    own reference slope by more than 30% -- recorded in stages['stage0']
+    as `beamstop_trimmed_n`/`beamstop_trim_qmax` for the UI to grey out.
 
     `force_preset` (v2 §4: a manually-picked preset must still go through
     the staged protocol, never a one-shot fit from a single generic seed)
@@ -1236,9 +1755,30 @@ def fit_staged(
     I = np.asarray(hygiene.curve.intensity, dtype=float)
     sigma = np.asarray(hygiene.curve.sigma, dtype=float)
 
+    n_beamstop = detect_beamstop_edge_trim(q, I)
+    beamstop_trim_qmax = float(q[n_beamstop - 1]) if n_beamstop > 0 else None
+    if n_beamstop > 0:
+        q, I, sigma = q[n_beamstop:], I[n_beamstop:], sigma[n_beamstop:]
+        flags.append(f"beamstop_trimmed:{n_beamstop}")
+
     if residual_mode is None:
-        effective_data_type = data_type or detect_data_type(I, curve.metadata)
-        residual_mode = "log10" if effective_data_type == "au" else "weighted_linear"
+        # v3 §8.1/8.2: sigma-weighted linear is primary WHEN there's a
+        # real sigma to weight by -- either genuinely measured/propagated,
+        # or "no sigma exists" is false. When the curve carries no sigma
+        # at all, an ESTIMATED one (Poisson-like or detrended-MAD) is a
+        # rough approximation that can itself be biased low over a region
+        # the current composite doesn't yet model (e.g. an unmodeled
+        # low-q upturn artificially depresses the local noise estimate
+        # there), which then lets that region's points dominate a
+        # weighted-linear objective out of proportion to their real
+        # reliability -- exactly the failure mode "unweighted log fitting
+        # survives as a last-resort fallback when no sigma exists" (v3
+        # §8.2) is for: log10 residuals are immune to this since they
+        # don't depend on sigma's magnitude at all. Confirmed empirically:
+        # a synthetic no-sigma TS+Guinier-Porod curve recovers xi to
+        # <0.1% error in log10 mode vs. >150% error in weighted_linear
+        # mode with the estimated sigma.
+        residual_mode = "weighted_linear" if hygiene.sigma_model == "measured" else "log10"
 
     q_cut = None if mask_regions is not None else detect_high_q_cut(q, I)
     if mask_regions is None:
@@ -1257,6 +1797,7 @@ def fit_staged(
                   "n_trimmed_edge": hygiene.n_trimmed_edge,
                   "n_dropped_nonfinite": hygiene.n_dropped_nonfinite,
                   "n_points": int(q.size), "q_cut": q_cut,
+                  "beamstop_trimmed_n": n_beamstop, "beamstop_trim_qmax": beamstop_trim_qmax,
                   # mask_regions itself lives on FitResult.mask_regions (the
                   # single source of truth) -- not duplicated here as tuples,
                   # which would break to_json()/from_json() round-tripping
@@ -1267,8 +1808,31 @@ def fit_staged(
     }
 
     stage1 = _stage1_bg(q, I, sigma, active_windows, sample_id=sample_id, residual_mode=residual_mode)
-    stages["stage1"] = {"redchi": float(stage1["result"].redchi), "mask_n": int(stage1["mask"].sum()),
-                        "pruned": stage1["pruned"]}
+    sigma_scale = 1.0
+    chi2red_plateau = float(stage1["result"].redchi)
+    if residual_mode == "weighted_linear" and math.isfinite(chi2red_plateau) and chi2red_plateau > 0:
+        # v3 §8.3 plateau calibration: fit bg(+pl) alone on the featureless
+        # high-q plateau (exactly what _stage1_bg already does) and check
+        # its chi2red. In [0.8, 1.25]: sigma is already realistic, use it
+        # as-is (s=1). Outside that band: rescale ALL sigma by a single
+        # global s=sqrt(chi2red_plateau) so the plateau's OWN calibrated
+        # chi2red becomes exactly 1.0 (a uniform sigma rescale can't move
+        # any stage's best-fit VALUES -- weighted least squares is
+        # invariant to a global weight scale -- so this only recalibrates
+        # reported chi2/AIC/BIC/uncertainty, never the fit itself). An
+        # extreme scale (s>2 or s<0.5) additionally raises a
+        # reduction_warning flag rather than silently absorbing it --
+        # that large a mismatch is itself worth the user's attention.
+        if not (0.8 <= chi2red_plateau <= 1.25):
+            sigma_scale = math.sqrt(chi2red_plateau)
+            sigma = sigma * sigma_scale
+            flags.append("sigma_scaled")
+            if sigma_scale > 2.0 or sigma_scale < 0.5:
+                flags.append(f"reduction_warning:sigma_scale_extreme:{sigma_scale:.3g}")
+            stage1 = _stage1_bg(q, I, sigma, active_windows, sample_id=sample_id, residual_mode=residual_mode)
+    stages["stage1"] = {"redchi": float(stage1["result"].redchi), "chi2red_plateau_raw": chi2red_plateau,
+                        "mask_n": int(stage1["mask"].sum()),
+                        "pruned": stage1["pruned"], "sigma_scale": sigma_scale}
     current_model, current_result = stage1["model"], stage1["result"]
     preset_names = ["flat_background", "power_law"]
     had_ts = False
@@ -1316,9 +1880,19 @@ def fit_staged(
         flags.append(f"{stage3_component}_skipped_insufficient_window")
 
     best_values = {name: current_result.params[name].value for name in current_result.params}
-    fixed_params = ["pl_B", "pl_p"] if "power_law" in pruned else None
+    fixed_params: List[str] = ["pl_B", "pl_p"] if "power_law" in pruned else []
+    if stage3_component == "power_law2" and stage3 is not None:
+        # v3 §4: freeze pl2_p2 for the global stage UNLESS its own profile
+        # shows real sensitivity -- kills the pl2_B2~pl2_p2 anti-
+        # correlation that was leaking into the fitted TS width, while
+        # still releasing p2 on the rare curve where it actually matters.
+        if _pl2_sensitive(current_model, best_values, q, I, sigma, residual_mode):
+            flags.append("pl2_p2_sensitive_kept_free")
+        else:
+            fixed_params.append("pl2_p2")
+            flags.append("pl2_p2_frozen")
     stage4 = _stage4_global(q, I, sigma, current_model, best_values, sample_id, multistart_n,
-                            residual_mode=residual_mode, fixed_params=fixed_params)
+                            residual_mode=residual_mode, fixed_params=fixed_params or None)
     stages["stage4"] = {"redchi": float(stage4["result"].redchi), "n_multistart": multistart_n}
     assembled_model, assembled_result = stage4["model"], stage4["result"]
 
@@ -1348,6 +1922,8 @@ def fit_staged(
         final_model, final_result = stage6["model"], stage6["result"]
         if preset_chosen != assembled_name:
             flags.append(f"ladder_demoted:{assembled_name}->{preset_chosen}")
+        if stage6["ladder"].get("visual_equivalence_gate_bypassed") == preset_chosen:
+            flags.append("visual_equivalence_gate_bypassed")
 
     no_peak = "teubner_strey" not in {comp.name for _, comp in final_model.components}
     if no_peak and had_ts:
@@ -1357,17 +1933,69 @@ def fit_staged(
     stages["stage5"] = diagnostics
     flags.extend(diagnostics["flags"])
 
+    # v3 §5: at_bounds_suggest_simpler_preset now requires the simpler
+    # preset to have actually been tried by the ladder AND be genuinely
+    # comparable (within 10 BIC, rms_log not worse by more than 0.1) --
+    # previously fired unconditionally on >=2 at-bound params, which could
+    # suggest a preset that's actually far worse (e.g. BG_TS_PL2 wrongly
+    # suggesting BG_TS when BG_TS was a much poorer fit).
     at_bound_count = sum(1 for f in diagnostics["flags"] if f.startswith("at_bound:"))
     if at_bound_count >= 2:
         suggestion = _SIMPLER_PRESET.get(preset_chosen, preset_chosen)
-        flags.append(f"at_bounds_suggest_simpler_preset:{suggestion}")
+        ladder_info = stages["stage6"] if isinstance(stages["stage6"], dict) else {}
+        current_entry = ladder_info.get(preset_chosen, {})
+        simpler_entry = ladder_info.get(suggestion, {})
+        current_bic, current_rms = current_entry.get("bic"), diagnostics["gof"]["rms_log"]
+        simpler_bic, simpler_rms = simpler_entry.get("bic"), simpler_entry.get("rms_log")
+        if (suggestion != preset_chosen and None not in (current_bic, simpler_bic, simpler_rms)
+                and (simpler_bic - current_bic) < 10.0 and (simpler_rms - current_rms) < 0.1):
+            flags.append(f"at_bounds_suggest_simpler_preset:{suggestion}")
+
+    # v3 §2/§3: profile-likelihood CIs and the peak-focused Stage 2b
+    # cross-check, only meaningful when the final model actually has a TS
+    # peak.
+    ci_info: Dict[str, Any] = {}
+    d_peak = xi_peak = None
+    d_unreliable = xi_unreliable = False
+    if not no_peak:
+        ci_info = compute_ts_profile_likelihood_cis(final_model, final_result, q, I, sigma,
+                                                    residual_mode=residual_mode)
+        # d_ci/xi_ci (tuples) are NOT duplicated into `stages` here -- they
+        # live solely on FitResult.d_ci/xi_ci (the single source of truth,
+        # same pattern as mask_regions), since a tuple nested inside the
+        # free-form `stages` dict silently becomes a list after one JSON
+        # save/load round-trip while the typed top-level field stays a
+        # tuple, breaking to_json()/from_json() equality.
+        if ci_info.get("xi_unidentifiable"):
+            flags.append("xi_unidentifiable")
+
+        stage2b = stage2b_peak_crosscheck(final_model, final_result, q, I, sigma, active_windows,
+                                          residual_mode=residual_mode)
+        if stage2b is not None:
+            d_global = float(final_result.params["ts_d"].value)
+            xi_global = float(final_result.params["ts_xi"].value)
+            d_peak = float(stage2b["result"].params["ts_d"].value)
+            xi_peak = float(stage2b["result"].params["ts_xi"].value)
+            stages["stage2b"] = {"d_peak": d_peak, "xi_peak": xi_peak, "mask_n": int(stage2b["mask"].sum())}
+            if xi_global and abs(xi_peak - xi_global) / abs(xi_global) > 0.3:
+                xi_unreliable = True
+                flags.append("xi_unreliable")
+            if d_global and abs(d_peak - d_global) / abs(d_global) > 0.1:
+                d_unreliable = True
+                flags.append("d_unreliable")
+        else:
+            stages["stage2b"] = {"skipped": "insufficient_points_in_window"}
 
     return FitResult(
         sample_id=sample_id, preset_chosen=preset_chosen, residual_mode=residual_mode, loss=loss,
         windows=active_windows, sigma_model=hygiene.sigma_model,
         params=_params_to_dict(final_result.params, chi2red=diagnostics["gof"]["chi2red"]),
-        derived=_build_derived(final_model, final_result.params),
+        derived=_build_derived(final_model, final_result.params, pruned=pruned),
         gof=diagnostics["gof"], flags=flags, seeds_used=best_values,
         multistart_n=multistart_n, no_peak=no_peak, stages=stages, pruned=pruned,
         rms_log=diagnostics["gof"]["rms_log"], q_cut=q_cut, mask_regions=active_mask_regions,
+        sigma_scale=sigma_scale,
+        d_ci=ci_info.get("d_ci"), xi_ci=ci_info.get("xi_ci"),
+        xi_unidentifiable=bool(ci_info.get("xi_unidentifiable", False)), fa_bound=ci_info.get("fa_bound"),
+        d_peak=d_peak, xi_peak=xi_peak, xi_unreliable=xi_unreliable, d_unreliable=d_unreliable,
     )

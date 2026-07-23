@@ -265,10 +265,11 @@ class SaxsWorkspace(QWidget):
         self.comp_report.setMaximumHeight(140)
         crl.addWidget(self.comp_report)
         crl.addWidget(QLabel("Batch results"))
-        self.comp_batch_table = QTableWidget(0, 10)
+        self.comp_batch_table = QTableWidget(0, 15)
         self.comp_batch_table.setHorizontalHeaderLabels(
             ["sample_id", "preset_chosen", "d (Å)", "xi (Å)", "fa", "chi2red", "d_TS/d_gauss",
-             "rms_log", "at_bounds", "q_cut"])
+             "rms_log", "at_bounds", "q_cut", "d_CI", "xi_CI_or_bound", "fa_or_bound",
+             "sigma_scale", "xi flags"])
         self.comp_batch_table.setEditTriggers(QTableWidget.NoEditTriggers)
         crl.addWidget(self.comp_batch_table, 1)
         comp_splitter.addWidget(comp_right)
@@ -578,7 +579,11 @@ class SaxsWorkspace(QWidget):
         params = {k: v["value"] for k, v in result.params.items()}
         return {"model": model, "params": params, "derived": result.derived, "gof": result.gof,
                 "preset": result.preset_chosen, "flags": result.flags, "curve": curve,
-                "windows": result.windows, "residual_mode": result.residual_mode}
+                "windows": result.windows, "residual_mode": result.residual_mode,
+                "sigma_scale": result.sigma_scale, "sigma_model": result.sigma_model,
+                "d_ci": result.d_ci, "xi_ci": result.xi_ci,
+                "xi_unidentifiable": result.xi_unidentifiable, "fa_bound": result.fa_bound,
+                "stages": result.stages, "mask_regions": result.mask_regions}
 
     def run_composite_fit(self) -> None:
         from qt_worker import run_in_thread
@@ -634,7 +639,22 @@ class SaxsWorkspace(QWidget):
         ax_res = fig.add_subplot(212, sharex=ax)
         q = np.asarray(curve.q, float)
         I = np.asarray(curve.intensity, float)
-        ax.loglog(q, np.clip(I, 1e-12, None), ".", ms=2, color="black", label=curve.name)
+
+        # v3 ADDENDUM §7: points excluded from the fit (beamstop-edge trim
+        # and/or the high-q mask_regions) are shown greyed rather than
+        # silently dropped from the plot entirely.
+        excluded = np.zeros_like(q, dtype=bool)
+        beamstop_qmax = ((payload.get("stages") or {}).get("stage0") or {}).get("beamstop_trim_qmax")
+        if beamstop_qmax is not None:
+            excluded |= q <= beamstop_qmax
+        for lo, hi in payload.get("mask_regions") or []:
+            excluded |= (q >= lo) & (q <= hi)
+        kept = ~excluded
+
+        ax.loglog(q[kept], np.clip(I[kept], 1e-12, None), ".", ms=2, color="black", label=curve.name)
+        if np.any(excluded):
+            ax.loglog(q[excluded], np.clip(I[excluded], 1e-12, None), ".", ms=3, color="0.75",
+                     label="excluded from fit")
         total = model.eval(q, params)
         ax.loglog(q, np.clip(total, 1e-12, None), lw=1.6, color="crimson", label=f"total ({payload['preset']})")
         for name, comp_curve in model.eval_components(q, params).items():
@@ -649,7 +669,9 @@ class SaxsWorkspace(QWidget):
             ax.axvspan(w_peak[0], w_peak[1], color="tab:blue", alpha=0.08)
             ax_res.axvspan(w_peak[0], w_peak[1], color="tab:blue", alpha=0.08)
         resid = np.log10(np.clip(total, 1e-300, None)) - np.log10(np.clip(I, 1e-300, None))
-        ax_res.semilogx(q, resid, ".", ms=2, color="steelblue")
+        ax_res.semilogx(q[kept], resid[kept], ".", ms=2, color="steelblue")
+        if np.any(excluded):
+            ax_res.semilogx(q[excluded], resid[excluded], ".", ms=3, color="0.75")
         ax_res.axhline(0.0, color="0.5", lw=0.8)
         ax_res.set_xlabel("q (Å⁻¹)")
         ax_res.set_ylabel("log10 resid.")
@@ -666,13 +688,56 @@ class SaxsWorkspace(QWidget):
             lines.append("Flags: " + "; ".join(payload["flags"]))
         lines.append("")
         lines.append("Derived:")
-        for k, v in payload["derived"].items():
+        derived = payload["derived"]
+        if "d" in derived:
+            d_ci = payload.get("d_ci")
+            if d_ci:
+                lines.append(f"  d = {derived['d']:.5g} (+{d_ci[1]-derived['d']:.3g}/"
+                             f"-{derived['d']-d_ci[0]:.3g}) Å")
+            else:
+                lines.append(f"  d = {derived['d']:.5g} Å")
+        if "xi" in derived:
+            if payload.get("xi_unidentifiable"):
+                xi_ci = payload.get("xi_ci")
+                lower = xi_ci[0] if xi_ci else None
+                lines.append(f"  xi > {lower:.5g} Å (95%, unidentifiable)" if lower is not None
+                             else "  xi: unidentifiable (no lower bound found)")
+            else:
+                xi_ci = payload.get("xi_ci")
+                if xi_ci:
+                    lines.append(f"  xi = {derived['xi']:.5g} (+{xi_ci[1]-derived['xi']:.3g}/"
+                                 f"-{derived['xi']-xi_ci[0]:.3g}) Å")
+                else:
+                    lines.append(f"  xi = {derived['xi']:.5g} Å")
+        if "fa" in derived:
+            if payload.get("xi_unidentifiable") and payload.get("fa_bound") is not None:
+                lines.append(f"  fa < {payload['fa_bound']:.4g} (bound, since xi is unidentifiable)")
+            else:
+                lines.append(f"  fa = {derived['fa']:.4g}")
+        for k, v in derived.items():
+            if k in ("d", "xi", "fa", "components"):
+                continue
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 lines.append(f"  {k} = {v:.5g}")
+            elif isinstance(v, str):
+                lines.append(f"  {k} = {v}")
         lines.append("")
         lines.append("Goodness of fit:")
         for k, v in payload["gof"].items():
             lines.append(f"  {k} = {v}")
+        lines.append("")
+        lines.append("Calibration:")
+        lines.append(f"  sigma_model = {payload.get('sigma_model')}   sigma_scale = {payload.get('sigma_scale'):.4g}")
+        stage0 = (payload.get("stages") or {}).get("stage0", {})
+        n_beamstop = stage0.get("beamstop_trimmed_n")
+        if n_beamstop:
+            lines.append(f"  beamstop-trimmed points: {n_beamstop} (up to q = {stage0.get('beamstop_trim_qmax'):.4g} Å⁻¹)")
+        mask_regions = payload.get("mask_regions") or []
+        if mask_regions:
+            lines.append("  masked regions: " + "; ".join(f"[{lo:.4g}, {hi:.4g}]" for lo, hi in mask_regions))
+        windows = payload.get("windows") or {}
+        if windows:
+            lines.append("  windows: " + "; ".join(f"{k}=[{lo:.4g},{hi:.4g}]" for k, (lo, hi) in windows.items()))
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
@@ -722,6 +787,34 @@ class SaxsWorkspace(QWidget):
             for c, key in enumerate(cols):
                 val = row.get(key, "")
                 text = "" if val is None else (f"{val:.5g}" if isinstance(val, float) else str(val))
+                self.comp_batch_table.setItem(r, c, QTableWidgetItem(text))
+            # v3 §5 batch columns: d_CI, xi_CI_or_bound, fa_or_bound,
+            # sigma_scale, xi flags -- assembled from to_csv_row()'s raw
+            # d_ci_lo/hi, xi_ci_lo/hi, xi_unidentifiable, fa_bound fields.
+            d_lo, d_hi = row.get("d_ci_lo"), row.get("d_ci_hi")
+            d_ci_text = f"{d_lo:.5g}-{d_hi:.5g}" if (d_lo is not None and d_hi is not None) else ""
+            xi_lo, xi_hi = row.get("xi_ci_lo"), row.get("xi_ci_hi")
+            if row.get("xi_unidentifiable"):
+                xi_ci_text = f"> {xi_lo:.5g}" if xi_lo is not None else "unidentifiable"
+            elif xi_lo is not None and xi_hi is not None:
+                xi_ci_text = f"{xi_lo:.5g}-{xi_hi:.5g}"
+            else:
+                xi_ci_text = ""
+            fa_bound = row.get("fa_bound")
+            if row.get("xi_unidentifiable") and fa_bound is not None:
+                fa_text = f"< {fa_bound:.4g}"
+            else:
+                fa_val = row.get("derived_fa")
+                fa_text = f"{fa_val:.4g}" if isinstance(fa_val, float) else ""
+            sigma_scale = row.get("sigma_scale")
+            sigma_scale_text = f"{sigma_scale:.4g}" if isinstance(sigma_scale, float) else ""
+            xi_flag_bits = []
+            if row.get("xi_unidentifiable"):
+                xi_flag_bits.append("unidentifiable")
+            if row.get("xi_unreliable"):
+                xi_flag_bits.append("unreliable")
+            for c, text in enumerate((d_ci_text, xi_ci_text, fa_text, sigma_scale_text, ";".join(xi_flag_bits)),
+                                     start=len(cols)):
                 self.comp_batch_table.setItem(r, c, QTableWidgetItem(text))
         self.comp_batch_table.resizeColumnsToContents()
         if batch.errors:

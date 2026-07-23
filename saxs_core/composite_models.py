@@ -162,11 +162,13 @@ class PowerLaw2(Component):
     def params(self) -> List[Param]:
         return [
             Param("B2", 1.0, 0.0, np.inf, unit="a.u.", doc="Low-q upturn prefactor."),
-            Param("p2", 3.5, 2.5, 4.3, doc=(
-                "Low-q upturn exponent — bounded to [2.5, 4.3], the "
-                "physically expected range for powder/grain-surface "
-                "scattering, distinct from power_law's own [1, 4.5] "
-                "general-purpose bounds.")),
+            Param("p2", 3.5, 1.2, 4.3, doc=(
+                "Low-q upturn exponent — bounded to [1.2, 4.3] (v3 ADDENDUM: "
+                "widened from [2.5, 4.3] after visual inspection showed the "
+                "real P5Bi8-12 low-q tail falls as ~q^-1.5..-2, an "
+                "Ornstein-Zernike-like large-scale-fluctuation regime, not a "
+                "Porod/grain-surface one). See regime_label() for the "
+                "fitted-p2 -> physical-regime mapping.")),
         ]
 
     def eval(self, q: np.ndarray, B2: float = 1.0, p2: float = 3.5) -> np.ndarray:
@@ -184,8 +186,22 @@ class PowerLaw2(Component):
         if int(np.sum(mask)) < 2:
             return {"B2": float(np.max(I)) if I.size else 1.0, "p2": 3.5}
         slope, intercept = np.polyfit(np.log(q[mask]), np.log(I[mask]), 1)
-        p2 = float(np.clip(-slope, 2.5, 4.3))
+        p2 = float(np.clip(-slope, 1.2, 4.3))
         return {"B2": max(float(np.exp(intercept)), 0.0), "p2": p2}
+
+
+def regime_label(p2: float) -> str:
+    """v3 ADDENDUM: physical-regime label from a fitted power_law2 exponent.
+    <2.5 an Ornstein-Zernike-like large-scale-fluctuation tail (no sharp
+    interface); 2.5-3.5 fractal-like (rough/branched interfaces); >3.5
+    Porod (smooth, sharp interfaces) -- purely descriptive, not used for
+    any fitting/selection decision."""
+    p2 = float(p2)
+    if p2 < 2.5:
+        return "OZ-like fluctuation tail"
+    if p2 <= 3.5:
+        return "fractal-like"
+    return "Porod (surface)"
 
 
 # =============================================================================
@@ -334,6 +350,44 @@ class Dab(Component):
 
 
 # =============================================================================
+# 1.6b lorentz_oz (Ornstein-Zernike) — v3 ADDENDUM: a large-scale-
+# fluctuation low-q tail, I(q) = A / (1 + q^2 xiL^2). Exponent 1 in the
+# denominator (vs. Dab's exponent 2) makes this mathematically distinct:
+# it falls off as ~q^-2 at high q within its own regime rather than Dab's
+# ~q^-4, matching the P5Bi8-12 low-q tail's observed ~q^-1.5..-2 falloff
+# (an OZ tail with its knee below q_min) better than a Porod-type term.
+# =============================================================================
+
+class LorentzOZ(Component):
+    """Ornstein-Zernike-type Lorentzian tail: I(q) = A / (1 + q^2 xiL^2).
+    Used as the low-q role in preset BG_TS_OZ, a ladder-only alternative to
+    guinier_porod/power_law2 for large-scale-fluctuation-dominated tails
+    whose knee sits below the instrument's q_min (so xiL itself may not be
+    tightly constrained -- the tail's presence/shape is still meaningful)."""
+    name = "lorentz_oz"
+
+    def params(self) -> List[Param]:
+        return [
+            Param("A", 1.0, 0.0, np.inf, unit="a.u.", doc="OZ tail amplitude."),
+            Param("xiL", 5000.0, 500.0, 1e5, unit="Å", doc=(
+                "OZ correlation length (knee at q ~ 1/xiL). Bounds "
+                "[500, 1e5] Å per the v3 ADDENDUM.")),
+        ]
+
+    def eval(self, q: np.ndarray, A: float = 1.0, xiL: float = 5000.0) -> np.ndarray:
+        q = np.asarray(q, dtype=float)
+        return float(A) / (1.0 + (q ** 2) * (float(xiL) ** 2))
+
+    def seed(self, q, I, windows=None) -> Dict[str, float]:
+        # Reuses Dab's own seed heuristic (same qualitative shape:
+        # amplitude at low q, half-max descent locates the correlation
+        # length) -- the formula for xi from q_half is identical to what
+        # this component needs, only the eval() exponent differs.
+        base = Dab().seed(q, I, windows)
+        return {"A": base["A"], "xiL": float(np.clip(base["xi"], 500.0, 1e5))}
+
+
+# =============================================================================
 # 1.7 teubner_strey — THE peak model (Teubner & Strey 1987, J. Chem. Phys.
 # 87, 3195). Physical (S, d, xi) parametrization: far better conditioned
 # for least-squares than the classic (a2, c1, c2) form.
@@ -453,6 +507,6 @@ class BroadPeak(Component):
 COMPONENTS: Dict[str, Type[Component]] = {
     cls.name: cls for cls in (
         FlatBackground, PowerLaw, PowerLaw2, Guinier, GuinierPorod,
-        BeaucageUnified, Dab, TeubnerStrey, BroadPeak,
+        BeaucageUnified, Dab, LorentzOZ, TeubnerStrey, BroadPeak,
     )
 }

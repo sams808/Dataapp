@@ -137,7 +137,9 @@ def test_fit_staged_recovers_ts_peak_on_synthetic_curve():
 def test_fit_staged_retains_every_stage():
     curve = _ts_curve(seed=4)
     result = fit_staged(curve, multistart_n=2)
-    assert set(result.stages) == {"stage0", "stage1", "stage2", "stage3", "stage4", "stage5", "stage6"}
+    # stage2b (v3 §3's peak-focused cross-check) is additionally present
+    # whenever the final model has a TS peak (true for this curve/seed).
+    assert set(result.stages) == {"stage0", "stage1", "stage2", "stage2b", "stage3", "stage4", "stage5", "stage6"}
     assert "class_guess" in result.stages["stage0"]
     assert "redchi" in result.stages["stage1"]
     assert "gof" in result.stages["stage5"] and "flags" in result.stages["stage5"]
