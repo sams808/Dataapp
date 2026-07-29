@@ -97,6 +97,80 @@ def test_xy_builder_layers_render_types_and_panels(qtbot):
     assert len(axes[1].collections) == 1  # vlines on panel 2
 
 
+def test_xy_builder_ticks_and_ticklabels_toggle(qtbot):
+    library = SpectrumLibrary()
+    library.add(_spectrum("s1", value=1.0))
+    widget = FiguresWorkspace(library=library)
+    qtbot.addWidget(widget)
+    widget.set_spectra([s.id for s in library.all()])
+    widget.spectra_list.selectAll()
+    widget._add_layers()
+
+    # defaults: both ticks and tick labels shown
+    widget.render_xy()
+    qtbot.wait(20)
+    ax = widget.xy_plot.figure.get_axes()[0]
+    assert ax.xaxis.get_major_ticks()[0].tick1line.get_visible()
+    assert ax.xaxis.get_major_ticks()[0].label1.get_visible()
+
+    # hide tick marks only, labels stay
+    widget.ticks_check.setChecked(False)
+    widget.render_xy()
+    qtbot.wait(20)
+    ax = widget.xy_plot.figure.get_axes()[0]
+    assert not ax.xaxis.get_major_ticks()[0].tick1line.get_visible()
+    assert ax.xaxis.get_major_ticks()[0].label1.get_visible()
+
+    # hide labels too
+    widget.ticklabels_check.setChecked(False)
+    widget.render_xy()
+    qtbot.wait(20)
+    ax = widget.xy_plot.figure.get_axes()[0]
+    assert not ax.xaxis.get_major_ticks()[0].tick1line.get_visible()
+    assert not ax.xaxis.get_major_ticks()[0].label1.get_visible()
+
+
+def test_export_figure_rescales_fonts_for_small_size(qtbot, tmp_path):
+    library = SpectrumLibrary()
+    library.add(_spectrum("s1", value=1.0))
+    widget = FiguresWorkspace(library=library)
+    qtbot.addWidget(widget)
+    widget.set_spectra([s.id for s in library.all()])
+    widget.spectra_list.selectAll()
+    widget._add_layers()
+    widget.render_xy()
+    qtbot.wait(20)
+
+    ax = widget.xy_plot.figure.get_axes()[0]
+    original_size = ax.xaxis.label.get_fontsize()
+
+    # capture the font size actually in effect at the moment savefig runs,
+    # i.e. mid-export, before the finally-block restore
+    seen_during_export = {}
+    real_savefig = widget.xy_plot.figure.savefig
+
+    def _spy_savefig(path, **kwargs):
+        seen_during_export["size"] = ax.xaxis.label.get_fontsize()
+        return real_savefig(path, **kwargs)
+
+    out = tmp_path / "small.png"
+    widget.width_edit.setText("5")
+    widget.height_edit.setText("6")
+    import qt_figures
+    from unittest.mock import patch
+    with patch.object(qt_figures.QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out), ""))), \
+         patch.object(widget.xy_plot.figure, "savefig", side_effect=_spy_savefig):
+        widget.export_figure()
+
+    assert out.exists()
+    # fonts must be visibly smaller during the small export than on-screen…
+    assert seen_during_export["size"] < original_size
+    # …but restored to the on-screen size afterward
+    assert ax.xaxis.label.get_fontsize() == pytest.approx(original_size)
+    # figure size must also be restored
+    assert widget.xy_plot.figure.get_size_inches()[0] == pytest.approx(7.0)
+
+
 def test_point_fit_tab_reports_r_squared(qtbot):
     library = SpectrumLibrary()
     x = np.linspace(0, 10, 40)

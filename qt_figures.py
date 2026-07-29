@@ -137,6 +137,15 @@ class FiguresWorkspace(QWidget):
         opt_row.addWidget(self.legend_check)
         ll.addLayout(opt_row)
 
+        tick_row = QHBoxLayout()
+        self.ticks_check = QCheckBox("ticks")
+        self.ticks_check.setChecked(True)
+        self.ticklabels_check = QCheckBox("tick labels")
+        self.ticklabels_check.setChecked(True)
+        tick_row.addWidget(self.ticks_check)
+        tick_row.addWidget(self.ticklabels_check)
+        ll.addLayout(tick_row)
+
         render_btn = QPushButton("Render")
         render_btn.setObjectName("Primary")
         render_btn.clicked.connect(lambda: self.xy_plot.request_redraw(self.render_xy))
@@ -291,6 +300,11 @@ class FiguresWorkspace(QWidget):
                     ax.set_xscale("log")
                 if self.logy_check.isChecked():
                     ax.set_yscale("log")
+                if not self.ticks_check.isChecked():
+                    ax.tick_params(axis="both", which="both", bottom=False, top=False, left=False, right=False)
+                if not self.ticklabels_check.isChecked():
+                    ax.tick_params(axis="both", which="both", labelbottom=False, labelleft=False,
+                                   labeltop=False, labelright=False)
                 ax.set_xlabel(self.xlabel_edit.text())
                 ax.set_ylabel(self.ylabel_edit.text())
                 if self.legend_check.isChecked():
@@ -314,13 +328,23 @@ class FiguresWorkspace(QWidget):
         w = fsc.cm_to_inches(_to_float(self.width_edit.text(), 16.0))
         h = fsc.cm_to_inches(_to_float(self.height_edit.text(), 10.0))
         dpi = int(_to_float(self.dpi_edit.text(), 600))
+        import matplotlib.text as mtext
+
         fig = plot.figure
         old = fig.get_size_inches()
+        old_area = float(old[0]) * float(old[1])
+        scale = float(np.sqrt((w * h) / old_area)) if old_area > 0 else 1.0
+        texts = fig.findobj(mtext.Text)
+        original_sizes = [(t, t.get_fontsize()) for t in texts]
         try:
             fig.set_size_inches(w, h)
+            for t, size in original_sizes:
+                t.set_fontsize(size * scale)
             fig.savefig(path, dpi=dpi, bbox_inches="tight")
         finally:
             fig.set_size_inches(*old)
+            for t, size in original_sizes:
+                t.set_fontsize(size)
             plot.canvas.draw_idle()
         QMessageBox.information(self, "Export", f"Saved {os.path.basename(path)} at {dpi} dpi.")
 
