@@ -166,4 +166,5 @@ MIT — see [LICENSE](LICENSE). Developed in the NOME group at Washington
 State University, with support from the U.S. Department of Energy;
 federally funded software can carry government/data rights beyond the
 license text, so check with your institution's tech transfer office before
-distributing outside the group.
+distributing outside the group. See [NOTICE](NOTICE.md) for the full
+institutional disclaimer.
