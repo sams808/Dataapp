@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import xas_science as xs
+import xas.xas_science as xs
 from conftest import requires_larch
 
 

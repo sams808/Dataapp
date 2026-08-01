@@ -88,7 +88,7 @@ def test_empty_project_round_trips(tmp_path):
 def test_xas_state_round_trips(tmp_path):
     """Project v2: XAS SpectrumStore contents survive, including e0/label/
     history/angle arrays."""
-    from xas_science import Operation, Spectrum as XasSpectrum, _uid
+    from xas.xas_science import Operation, Spectrum as XasSpectrum, _uid
 
     energy = np.linspace(7000, 7300, 100)
     sp = XasSpectrum(

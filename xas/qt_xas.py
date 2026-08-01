@@ -50,7 +50,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.qt_widgets import PlotWidget
-from xas_science import (
+from xas.xas_science import (
     _SCIPY_AVAILABLE,
     Operation,
     Spectrum,
@@ -1225,7 +1225,7 @@ class XasWorkspace(QWidget):
         return tab
 
     def _compute_sample_mass(self) -> None:
-        import xas_mass
+        import xas.xas_mass as xas_mass
         try:
             element = self.mass_element_edit.text().strip().capitalize()
             edge = self.mass_edge_combo.currentText()

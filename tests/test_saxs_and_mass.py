@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import xas_mass
+import xas.xas_mass as xas_mass
 from core.qt_models import SpectrumLibrary
 from qt_saxs import SaxsWorkspace
 from core.qt_shell import MODULES, NAV_ITEMS, PrismMainWindow
@@ -140,7 +140,7 @@ def test_sample_mass_report_oxide_mixture_bi_l3():
 
 
 def test_xas_workspace_mass_tab(qtbot):
-    from qt_xas import XasWorkspace
+    from xas.qt_xas import XasWorkspace
     widget = XasWorkspace()
     qtbot.addWidget(widget)
     widget._compute_sample_mass()  # defaults: Bi L3 on the Bi glass composition
@@ -216,7 +216,7 @@ def test_sample_mass_report_seo2_offset_does_not_explain_hephaestus_gap():
 
 
 def test_xas_workspace_mass_tab_custom_target(qtbot):
-    from qt_xas import XasWorkspace
+    from xas.qt_xas import XasWorkspace
     widget = XasWorkspace()
     qtbot.addWidget(widget)
     widget.mass_target_mut_edit.setText("1.5")
@@ -226,7 +226,7 @@ def test_xas_workspace_mass_tab_custom_target(qtbot):
 
 
 def test_xas_workspace_mass_tab_edge_offset_defaults_to_3(qtbot):
-    from qt_xas import XasWorkspace
+    from xas.qt_xas import XasWorkspace
     widget = XasWorkspace()
     qtbot.addWidget(widget)
     assert widget.mass_edge_offset_edit.text() == "3"
@@ -236,7 +236,7 @@ def test_xas_workspace_mass_tab_edge_offset_defaults_to_3(qtbot):
 
 
 def test_xas_workspace_mass_tab_custom_edge_offset(qtbot):
-    from qt_xas import XasWorkspace
+    from xas.qt_xas import XasWorkspace
     widget = XasWorkspace()
     qtbot.addWidget(widget)
     widget.mass_edge_offset_edit.setText("50")

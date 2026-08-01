@@ -197,7 +197,7 @@ def load_project(path: str) -> ProjectData:
 
         xas_spectra = []
         if "xas_spectra.json" in names:
-            from xas_science import Operation as XasOperation, Spectrum as XasSpectrum
+            from xas.xas_science import Operation as XasOperation, Spectrum as XasSpectrum
             for rec in json.loads(zf.read("xas_spectra.json").decode("utf-8")):
                 sid = rec["sid"]
                 xas_spectra.append(XasSpectrum(

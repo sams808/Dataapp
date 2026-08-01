@@ -11,8 +11,8 @@ import pytest
 from scipy.special import erf
 
 from core.qt_shell import NAV_ITEMS, PrismMainWindow
-from qt_xas import XasWorkspace
-from xas_science import Spectrum, _uid
+from xas.qt_xas import XasWorkspace
+from xas.xas_science import Spectrum, _uid
 
 
 def _synthetic_mu_spectrum(name="sample_mu", e0=7112.0, n=400, e_lo=6900.0, e_hi=7400.0) -> Spectrum:

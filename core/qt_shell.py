@@ -42,7 +42,7 @@ from xrd.qt_xrd import XrdIdWorkspace
 from xrd.qt_htxrd import HtxrdWorkspace
 from raman.qt_rruff import RruffMatchWorkspace
 from core.qt_widgets import PlotWidget
-from qt_xas import XasWorkspace
+from xas.qt_xas import XasWorkspace
 
 logger = logging.getLogger("prism")
 
