@@ -205,7 +205,7 @@ def test_ternary_tab_from_csv(qtbot, tmp_path):
 
 
 def test_raman_xrd_link_figure(qtbot, tmp_path):
-    import xrd_id_science as xid
+    import xrd.xrd_id_science as xid
     from test_xrd_id_science import QUARTZ_D, QUARTZ_I, _make_source_sq
     src = tmp_path / "src.sq"
     _make_source_sq(src, [(1010, "Quartz", "Quartz", "Si O2", "P 32 2 1", "A", QUARTZ_D, QUARTZ_I, ["Si", "O"])])

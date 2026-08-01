@@ -125,7 +125,7 @@ def _hermetic_xrd_registry(tmp_path, monkeypatch):
     tests never touch (or migrate!) the user's real registered databases.
     Works because the registry functions resolve these module attributes at
     call time, not def time."""
-    import xrd_id_science as xid
+    import xrd.xrd_id_science as xid
     monkeypatch.setattr(xid, "XRD_ID_REGISTRY_PATH", str(tmp_path / "xrd_registry.json"))
     monkeypatch.setattr(xid, "XRD_ID_DB_PATH", str(tmp_path / "xrdid_legacy_absent.sq"))
     monkeypatch.setattr(xid, "XRD_ID_IMPORT_DIR", str(tmp_path / "xrd_imported"))

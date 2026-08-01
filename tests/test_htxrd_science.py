@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import rampy as rp
 
-import htxrd_science as hs
+import xrd.htxrd_science as hs
 from conftest import EXAMPLES_DIR
 
 

@@ -8,7 +8,7 @@ import sqlite3
 import numpy as np
 import pytest
 
-import xrd_id_science as xid
+import xrd.xrd_id_science as xid
 
 
 def _make_source_sq(path, cards):

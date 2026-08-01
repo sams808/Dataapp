@@ -38,8 +38,8 @@ from processing.qt_calc import CalcWorkspace
 from qt_figures import FiguresWorkspace
 from qt_glass import GlassWorkspace
 from qt_saxs import SaxsWorkspace
-from qt_xrd import XrdIdWorkspace
-from qt_htxrd import HtxrdWorkspace
+from xrd.qt_xrd import XrdIdWorkspace
+from xrd.qt_htxrd import HtxrdWorkspace
 from raman.qt_rruff import RruffMatchWorkspace
 from core.qt_widgets import PlotWidget
 from qt_xas import XasWorkspace

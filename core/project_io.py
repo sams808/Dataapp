@@ -218,7 +218,7 @@ def load_project(path: str) -> ProjectData:
 
         htxrd_patterns = []
         if "htxrd.json" in names:
-            from htxrd_science import HtxrdPattern
+            from xrd.htxrd_science import HtxrdPattern
             for rec in json.loads(zf.read("htxrd.json").decode("utf-8")):
                 i = rec["index"]
                 htxrd_patterns.append(HtxrdPattern(

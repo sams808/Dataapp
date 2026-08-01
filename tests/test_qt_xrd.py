@@ -5,10 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import xrd_id_science as xid
+import xrd.xrd_id_science as xid
 from core.qt_models import Spectrum, SpectrumLibrary
 from core.qt_shell import NAV_ITEMS, PrismMainWindow
-from qt_xrd import XrdIdWorkspace
+from xrd.qt_xrd import XrdIdWorkspace
 from test_xrd_id_science import QUARTZ_D, QUARTZ_I, _make_source_sq
 
 

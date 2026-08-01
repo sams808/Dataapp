@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from htxrd_science import (
+from xrd.htxrd_science import (
     HtxrdPattern,
     PeakTrackResult,
     auto_track_windows,

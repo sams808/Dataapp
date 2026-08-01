@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import rampy as rp
 
-from qt_htxrd import HtxrdWorkspace
+from xrd.qt_htxrd import HtxrdWorkspace
 from core.qt_shell import PrismMainWindow, NAV_ITEMS
 
 

@@ -709,7 +709,7 @@ class FiguresWorkspace(QWidget):
         self.tabs.addTab(tab, "Raman ↔ XRD")
 
     def render_link(self) -> None:
-        import xrd_id_science as xid
+        import xrd.xrd_id_science as xid
         fig = self.link_plot.figure
         fig.clf()
         ax_r, ax_x = fig.subplots(2, 1)

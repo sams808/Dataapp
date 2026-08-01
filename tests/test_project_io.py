@@ -135,7 +135,7 @@ def test_bundled_demo_project_loads():
 def test_htxrd_state_round_trips(tmp_path):
     """Project v2: an HT-XRD series survives with ramp values/sources and
     arrays — independent of whether the original .rasx files still exist."""
-    from htxrd_science import HtxrdPattern
+    from xrd.htxrd_science import HtxrdPattern
 
     x = np.linspace(20, 50, 200)
     patterns = [

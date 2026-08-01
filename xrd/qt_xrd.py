@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-import xrd_id_science as xid
+import xrd.xrd_id_science as xid
 from core.fitting_science import find_peak_candidates
 from core.qt_models import SpectrumLibrary
 from core.qt_widgets import PlotWidget
