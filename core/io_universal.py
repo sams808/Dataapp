@@ -423,7 +423,8 @@ def parse_saxs_edf_ascii(path: str) -> tuple[pd.DataFrame, dict]:
         # fallback: treat first non-# non-numeric as header row
         for i, ln in enumerate(lines):
             s = ln.strip()
-            if not s or s.startswith("#"): continue
+            if not s or s.startswith("#"):
+                continue
             parts = _MULTI_SEP.split(s)
             if len(parts) >= 2 and (_normalize_num_token(parts[0]) is None or _normalize_num_token(parts[1]) is None):
                 header_columns_line = s

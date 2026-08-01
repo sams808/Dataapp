@@ -340,10 +340,13 @@ def test_infer_xas_edge_from_spectrum_wraps_label_correctly():
 
 def _two_prj_spectra():
     e = np.linspace(7000.0, 7300.0, 60)
-    mk = lambda name, e0, off: xs.Spectrum(
-        sid=xs._uid("sp"), name=name, kind="mu", energy=e,
-        y=np.tanh((e - e0) / 10.0) + off, angle=None, units="a.u.",
-        label="XAS", e0=e0, meta={})
+
+    def mk(name, e0, off):
+        return xs.Spectrum(
+            sid=xs._uid("sp"), name=name, kind="mu", energy=e,
+            y=np.tanh((e - e0) / 10.0) + off, angle=None, units="a.u.",
+            label="XAS", e0=e0, meta={})
+
     return mk("scanA", 7112.0, 1.0), mk("scanB", 7115.0, 1.1)
 
 
@@ -375,7 +378,8 @@ def test_parse_athena_prj_no_larch_reads_perl_format(tmp_path):
 
 def test_parse_athena_prj_no_larch_reads_json_format(tmp_path):
     """larch's other on-disk flavor: gzipped JSON with _____-prefixed keys."""
-    import gzip, json
+    import gzip
+    import json
     e = [7000.0, 7001.0, 7002.0]
     doc = {
         "_____header1": "# Athena project file -- Demeter version 0.9.26",
@@ -396,7 +400,8 @@ def test_parse_athena_prj_no_larch_reads_json_format(tmp_path):
 
 def test_read_athena_prj_works_without_larch(tmp_path, monkeypatch):
     """The portable-exe scenario: no larch importable at all."""
-    import gzip, json
+    import gzip
+    import json
     doc = {
         "_____header1": "# Athena project file -- Demeter version 0.9.26",
         "_____order": ["g1"],
