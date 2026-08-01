@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import dta_science as ds
+import dta.dta_science as ds
 import core.io_universal as iou
 
 
@@ -175,7 +175,7 @@ def test_resolve_baseline_params_identical_inputs_give_identical_output():
 # --------------------------------------------------------------------------
 
 def test_tg_agreement_within_threshold():
-    from dta_science import tg_agreement
+    from dta.dta_science import tg_agreement
     out = tg_agreement({"Double": 354.47, "Parallel": 354.51, "|dY| max": 357.62}, threshold=5.0)
     assert out["n"] == 3
     assert out["agree"] is True
@@ -184,14 +184,14 @@ def test_tg_agreement_within_threshold():
 
 
 def test_tg_agreement_flags_disagreement():
-    from dta_science import tg_agreement
+    from dta.dta_science import tg_agreement
     out = tg_agreement({"Double": 350.0, "Parallel": 362.0, "|dY| max": 351.0}, threshold=5.0)
     assert out["agree"] is False
     assert out["extremes"] == ("Double", "Parallel")
 
 
 def test_tg_agreement_undefined_below_two_methods():
-    from dta_science import tg_agreement
+    from dta.dta_science import tg_agreement
     import numpy as np
     out = tg_agreement({"Double": 350.0, "Parallel": None, "|dY| max": float("nan")})
     assert out["n"] == 1

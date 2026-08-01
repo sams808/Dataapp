@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from qt_dta import DtaWorkspace
+from dta.qt_dta import DtaWorkspace
 from core.qt_shell import PrismMainWindow, _load_spectrum_from_path
 
 

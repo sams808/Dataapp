@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 import core.io_universal as io_universal
-from qt_dta import DtaWorkspace
+from dta.qt_dta import DtaWorkspace
 from core.qt_models import Spectrum, SpectrumLibrary
 from processing.qt_multi_fit import MultiFitWorkspace
 from core.qt_settings_store import PerItemSettingsStore

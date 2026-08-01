@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QRadioButton, QSplitter, QTabWidget, QVBoxLayout, QWidget,
 )
 
-from dta_science import (
+from dta.dta_science import (
     BaselineParams, TgDoubleTangentResult, TgParallelTangentResult,
     compute_derivative, compute_tg_derivative, compute_tg_double_tangent,
     compute_tg_parallel_improved, moving_average_10, resolve_baseline_params,
@@ -602,7 +602,7 @@ class DtaWorkspace(QWidget):
                 hp = self.res_parallel.high_used
                 lines.append(f"HIGH: point x={hp[0]:.6g}" if self.res_parallel.high_mode == "point" else f"HIGH: {hp[0]:.6g}..{hp[1]:.6g}")
 
-            from dta_science import tg_agreement
+            from dta.dta_science import tg_agreement
             agreement = tg_agreement({"Double": td, "Parallel": tp, "|dY| max": tx}, threshold=5.0)
             if agreement["agree"] is True:
                 lines.append(f"✓ Methods agree (spread {agreement['spread']:.2f} {unit})")
