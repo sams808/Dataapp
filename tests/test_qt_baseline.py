@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import rampy as rp
 
-from qt_baseline import BaselineWorkspace
+from processing.qt_baseline import BaselineWorkspace
 from core.qt_models import Spectrum, SpectrumLibrary
 from core.qt_shell import NAV_ITEMS, PrismMainWindow
 

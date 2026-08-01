@@ -39,7 +39,7 @@ from core.fitting_science import (
     compute_r_squared,
     fit_spectrum, peak_centroid,
 )
-from qt_fit_params import FitParamDialog, list_model_names, load_model, _default_model_dir
+from processing.qt_fit_params import FitParamDialog, list_model_names, load_model, _default_model_dir
 from core.qt_models import SpectrumLibrary
 from core.qt_settings_store import PerItemSettingsStore
 from core.qt_widgets import PlotWidget

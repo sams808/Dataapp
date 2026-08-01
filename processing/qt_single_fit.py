@@ -50,7 +50,7 @@ from core.fitting_science import (
     build_lmfit_parameters, compute_chi2, compute_model, compute_r_squared,
     fit_spectrum, origin_lm_iteration, peak_centroid,
 )
-from qt_fit_params import FitParamDialog
+from processing.qt_fit_params import FitParamDialog
 from core.qt_models import SpectrumLibrary
 from core.qt_settings_store import PerItemSettingsStore
 from core.qt_widgets import PlotWidget
@@ -410,7 +410,7 @@ class SingleFitWorkspace(QWidget):
         near = np.abs(np.asarray(x, float) - center) <= half_width
         amp = float(np.nanmax(np.asarray(y, float)[near])) if np.any(near) else float(event.ydata)
 
-        from qt_fit_params import _DEFAULTS
+        from processing.qt_fit_params import _DEFAULTS
         row = dict(_DEFAULTS)
         row["shift_val"] = center
         row["shift_min"] = center - 10 * half_width

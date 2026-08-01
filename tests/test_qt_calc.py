@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from qt_calc import CalcWorkspace
+from processing.qt_calc import CalcWorkspace
 from core.qt_models import Spectrum, SpectrumLibrary
 from core.qt_shell import NAV_ITEMS, PrismMainWindow
 

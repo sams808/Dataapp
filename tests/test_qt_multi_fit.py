@@ -13,10 +13,10 @@ import pytest
 import rampy as rp
 
 from core.qt_models import Spectrum, SpectrumLibrary
-from qt_multi_fit import MultiFitWorkspace
+from processing.qt_multi_fit import MultiFitWorkspace
 from core.qt_settings_store import PerItemSettingsStore
 from core.qt_shell import NAV_ITEMS, PrismMainWindow, _load_spectrum_from_path
-from qt_single_fit import SingleFitWorkspace
+from processing.qt_single_fit import SingleFitWorkspace
 
 
 def _component(center=500.0, fwhm=30.0, amp=100.0, shape="G"):

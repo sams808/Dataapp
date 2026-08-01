@@ -59,7 +59,9 @@ SHAPES = ["G", "GL", "V", "EMG"]
 
 
 def _default_model_dir() -> str:
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "param_models")
+    # this file lives in processing/, so param_models/ is one level up at repo root
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(repo_root, "param_models")
 
 
 def list_model_names(model_dir: Optional[str] = None) -> List[str]:

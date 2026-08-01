@@ -41,7 +41,7 @@ def _series_files():
 
 
 def _fit_main_band(path):
-    from baseline_science import compute_baseline
+    from processing.baseline_science import compute_baseline
     from core.fitting_science import compute_r_squared, fit_spectrum
 
     d = np.loadtxt(path)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import calc_science as cs
+import processing.calc_science as cs
 
 
 def _xy(value=2.0, n=101, lo=0.0, hi=100.0):

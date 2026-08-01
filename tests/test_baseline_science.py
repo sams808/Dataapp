@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import rampy as rp
 
-import baseline_science as bs
+import processing.baseline_science as bs
 
 
 def _spectrum_with_linear_baseline():

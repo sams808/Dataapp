@@ -10,10 +10,10 @@ import numpy as np
 import pytest
 import rampy as rp
 
-from qt_fit_params import FitParamDialog
+from processing.qt_fit_params import FitParamDialog
 from core.qt_models import Spectrum, SpectrumLibrary
 from core.qt_shell import NAV_ITEMS, PrismMainWindow, _load_spectrum_from_path
-from qt_single_fit import SingleFitWorkspace
+from processing.qt_single_fit import SingleFitWorkspace
 
 
 def _synthetic_gaussian_spectrum() -> Spectrum:
@@ -177,7 +177,7 @@ def test_named_components_flow_into_report_csv_and_legend(qtbot, tmp_path, monke
 def test_fit_param_dialog_name_column_roundtrip(qtbot):
     """The Name column reads/writes params_struct['name']; unnamed rows
     stay clean (no empty 'name' keys), so old saved models are untouched."""
-    from qt_fit_params import _NAME_COL, FitParamDialog
+    from processing.qt_fit_params import _NAME_COL, FitParamDialog
     captured = []
     comp = _component(center=500.0)
     comp["name"] = "D band"

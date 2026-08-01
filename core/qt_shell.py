@@ -29,12 +29,12 @@ from PySide6.QtWidgets import (
 import core.io_universal as io_universal
 from qt_dta import DtaWorkspace
 from core.qt_models import Spectrum, SpectrumLibrary
-from qt_multi_fit import MultiFitWorkspace
+from processing.qt_multi_fit import MultiFitWorkspace
 from core.qt_settings_store import PerItemSettingsStore
 from qt_simple_plot import SimplePlotWorkspace
-from qt_single_fit import SingleFitWorkspace
-from qt_baseline import BaselineWorkspace
-from qt_calc import CalcWorkspace
+from processing.qt_single_fit import SingleFitWorkspace
+from processing.qt_baseline import BaselineWorkspace
+from processing.qt_calc import CalcWorkspace
 from qt_figures import FiguresWorkspace
 from qt_glass import GlassWorkspace
 from qt_saxs import SaxsWorkspace

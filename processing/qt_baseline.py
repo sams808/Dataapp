@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from baseline_science import BASELINE_METHODS, BASELINE_PARAM_DEFS, compute_baseline, parse_roi_text
+from processing.baseline_science import BASELINE_METHODS, BASELINE_PARAM_DEFS, compute_baseline, parse_roi_text
 from core.qt_models import Spectrum, SpectrumLibrary
 from core.qt_settings_store import PerItemSettingsStore
 from core.qt_widgets import PlotWidget

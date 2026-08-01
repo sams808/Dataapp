@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
-import calc_science as cs
+import processing.calc_science as cs
 from core.qt_models import Spectrum, SpectrumLibrary
 from core.qt_widgets import PlotWidget
 
