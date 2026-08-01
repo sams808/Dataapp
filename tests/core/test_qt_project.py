@@ -24,7 +24,7 @@ def test_shell_project_round_trip(qtbot, tmp_path, monkeypatch):
     window.fit_param_memory.set(sp.id, [{"shape": "G", "shift_val": 505.0}])
 
     project_path = tmp_path / "roundtrip.prism"
-    monkeypatch.setattr("qt_shell.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(project_path), "")))
+    monkeypatch.setattr("core.qt_shell.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(project_path), "")))
     window.save_project()
     assert project_path.exists()
 
@@ -32,7 +32,7 @@ def test_shell_project_round_trip(qtbot, tmp_path, monkeypatch):
     window2 = PrismMainWindow()
     qtbot.addWidget(window2)
     qtbot.wait(20)
-    monkeypatch.setattr("qt_shell.QFileDialog.getOpenFileName", staticmethod(lambda *a, **k: (str(project_path), "")))
+    monkeypatch.setattr("core.qt_shell.QFileDialog.getOpenFileName", staticmethod(lambda *a, **k: (str(project_path), "")))
     window2.open_project()
 
     loaded = window2.library.all()
@@ -52,7 +52,7 @@ def test_save_project_appends_extension(qtbot, tmp_path, monkeypatch):
     window.library.add(_spectrum())
 
     bare_path = tmp_path / "noext"
-    monkeypatch.setattr("qt_shell.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(bare_path), "")))
+    monkeypatch.setattr("core.qt_shell.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(bare_path), "")))
     window.save_project()
     assert (tmp_path / "noext.prism").exists()
 
@@ -88,13 +88,13 @@ def test_project_v3_round_trips_cif_overlays_and_baseline_settings(qtbot, tmp_pa
     window.baseline_page.settings.set(sp.id, {"method": "poly", "roi_text": "100-400", "p0": "2", "p1": ""})
 
     project_path = tmp_path / "v3.prism"
-    monkeypatch.setattr("qt_shell.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(project_path), "")))
+    monkeypatch.setattr("core.qt_shell.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(project_path), "")))
     window.save_project()
 
     window2 = PrismMainWindow()
     qtbot.addWidget(window2)
     qtbot.wait(20)
-    monkeypatch.setattr("qt_shell.QFileDialog.getOpenFileName", staticmethod(lambda *a, **k: (str(project_path), "")))
+    monkeypatch.setattr("core.qt_shell.QFileDialog.getOpenFileName", staticmethod(lambda *a, **k: (str(project_path), "")))
     window2.open_project()
     qtbot.wait(250)  # restore_cif_overlays renders via the debounce
 
@@ -117,7 +117,7 @@ def test_open_project_replaces_existing_library(qtbot, tmp_path, monkeypatch):
     window.library.add(keeper)
 
     project_path = tmp_path / "p.prism"
-    monkeypatch.setattr("qt_shell.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(project_path), "")))
+    monkeypatch.setattr("core.qt_shell.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(project_path), "")))
     window.save_project()
 
     # Add a second spectrum, then open the project — the pre-open library
@@ -125,7 +125,7 @@ def test_open_project_replaces_existing_library(qtbot, tmp_path, monkeypatch):
     # conftest's autouse fixture).
     window.library.add(_spectrum("volatile"))
     assert len(window.library) == 2
-    monkeypatch.setattr("qt_shell.QFileDialog.getOpenFileName", staticmethod(lambda *a, **k: (str(project_path), "")))
+    monkeypatch.setattr("core.qt_shell.QFileDialog.getOpenFileName", staticmethod(lambda *a, **k: (str(project_path), "")))
     window.open_project()
 
     titles = [s.title for s in window.library.all()]

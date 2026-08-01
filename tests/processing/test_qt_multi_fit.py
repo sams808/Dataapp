@@ -140,7 +140,7 @@ def test_export_results_csv_writes_file(qtbot, tmp_path, monkeypatch):
     qtbot.wait(20)  # let the preview's deferred canvas.draw_idle() complete before teardown
 
     out_path = tmp_path / "results.csv"
-    monkeypatch.setattr("qt_multi_fit.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(out_path), "")))
+    monkeypatch.setattr("processing.qt_multi_fit.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(out_path), "")))
     widget.export_results_csv()
 
     assert out_path.exists()
@@ -175,7 +175,7 @@ def test_shell_refreshes_recipes_saved_after_construction_on_nav_switch(qtbot, t
     silently didn't appear in the Multi-Fit combo until the user clicked its
     own manual Refresh button. qt_shell.py now re-scans on every nav switch
     into the Multi-Fit page, mirroring how spectra are already refreshed."""
-    monkeypatch.setattr("qt_multi_fit._default_model_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("processing.qt_multi_fit._default_model_dir", lambda: str(tmp_path))
 
     window = PrismMainWindow()
     qtbot.addWidget(window)

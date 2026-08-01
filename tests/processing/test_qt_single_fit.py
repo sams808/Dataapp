@@ -124,7 +124,7 @@ def test_export_components_csv_writes_per_component_and_residual_files(qtbot, tm
 
     out_base = tmp_path / "myfit.csv"
     monkeypatch.setattr(
-        "qt_single_fit.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(out_base), "")),
+        "processing.qt_single_fit.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(out_base), "")),
     )
     # The success-path QMessageBox.information() this triggers is neutralized
     # by conftest.py's autouse _prevent_blocking_qt_dialogs fixture (see its
@@ -166,7 +166,7 @@ def test_named_components_flow_into_report_csv_and_legend(qtbot, tmp_path, monke
     # CSV export: named header + sanitized filename
     out_base = tmp_path / "named.csv"
     monkeypatch.setattr(
-        "qt_single_fit.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(out_base), "")),
+        "processing.qt_single_fit.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(out_base), "")),
     )
     widget.export_components_csv()
     assert (tmp_path / "named_comp1_nu1_PO4.csv").exists()

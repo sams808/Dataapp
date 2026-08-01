@@ -96,7 +96,7 @@ def test_composite_fit_manual_preset_includes_flat_aliases(qtbot):
 def test_composite_fit_warns_without_a_curve(qtbot):
     widget = SaxsWorkspace()
     qtbot.addWidget(widget)
-    with patch("qt_saxs.QMessageBox.warning") as mock_warn:
+    with patch("saxs.qt_saxs.QMessageBox.warning") as mock_warn:
         widget.run_composite_fit()
     mock_warn.assert_called_once()
 
@@ -129,7 +129,7 @@ def test_composite_batch_csv_export_writes_a_file(qtbot, tmp_path):
     qtbot.wait(20)
 
     out_path = str(tmp_path / "batch_out.csv")
-    with patch("qt_saxs.QFileDialog.getSaveFileName", return_value=(out_path, "")):
+    with patch("saxs.qt_saxs.QFileDialog.getSaveFileName", return_value=(out_path, "")):
         widget.export_composite_batch_csv()
     assert os.path.isfile(out_path)
     assert os.path.getsize(out_path) > 0
@@ -138,7 +138,7 @@ def test_composite_batch_csv_export_writes_a_file(qtbot, tmp_path):
 def test_composite_batch_export_without_a_run_shows_info(qtbot):
     widget = SaxsWorkspace()
     qtbot.addWidget(widget)
-    with patch("qt_saxs.QMessageBox.information") as mock_info:
+    with patch("saxs.qt_saxs.QMessageBox.information") as mock_info:
         widget.export_composite_batch_csv()
     mock_info.assert_called_once()
 
