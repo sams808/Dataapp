@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import project_io
-from qt_models import Spectrum
+import core.project_io as project_io
+from core.qt_models import Spectrum
 
 
 def _spectrum(title="s1", with_df=True, with_match=False):

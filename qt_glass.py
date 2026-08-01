@@ -152,7 +152,7 @@ class GlassWorkspace(QWidget):
             return
         self.gn_btn.setEnabled(False)
         self.gn_btn.setText("Predicting… (first run loads the model)")
-        from qt_worker import run_in_thread
+        from core.qt_worker import run_in_thread
         run_in_thread(lambda: gs.glassnet_predict(df), self._on_glassnet_done, self._on_glassnet_error)
 
     def _on_glassnet_error(self, traceback_text: str) -> None:

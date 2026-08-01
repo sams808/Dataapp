@@ -6,8 +6,8 @@ import pytest
 import rampy as rp
 
 from qt_baseline import BaselineWorkspace
-from qt_models import Spectrum, SpectrumLibrary
-from qt_shell import NAV_ITEMS, PrismMainWindow
+from core.qt_models import Spectrum, SpectrumLibrary
+from core.qt_shell import NAV_ITEMS, PrismMainWindow
 
 
 def _library_with_baselined_spectrum():
@@ -130,7 +130,7 @@ def test_pick_roi_by_dragging_appends_segments(qtbot):
 
 
 def test_shell_baseline_page_picks_up_library_records(qtbot, raman_example_path):
-    from qt_shell import _load_spectrum_from_path
+    from core.qt_shell import _load_spectrum_from_path
 
     window = PrismMainWindow()
     qtbot.addWidget(window)

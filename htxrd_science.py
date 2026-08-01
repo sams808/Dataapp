@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-import io_universal
+import core.io_universal as io_universal
 
 
 # =============================================================================
@@ -254,7 +254,7 @@ def track_peak(
     initial_center picks WHICH peak to track when the window holds several
     (seed = the data maximum near it, not the window-wide maximum);
     seed_from_previous then keeps the fit locked on it as it drifts."""
-    from fitting_science import fit_spectrum
+    from core.fitting_science import fit_spectrum
 
     if window_hi <= window_lo:
         raise ValueError("window_hi must be greater than window_lo")
@@ -448,7 +448,7 @@ def auto_track_windows(
     reference pattern and build an anchored tracking window around each,
     sized from the peak's own local width. Feed the result to
     track_peaks_multi — or show it in the windows field for editing."""
-    from fitting_science import find_peak_candidates
+    from core.fitting_science import find_peak_candidates
 
     x, y = np.asarray(pattern.x, float), np.asarray(pattern.y, float)
     span = float(x[-1] - x[0]) if len(x) > 1 else 1.0

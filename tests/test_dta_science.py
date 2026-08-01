@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 import dta_science as ds
-import io_universal as iou
+import core.io_universal as iou
 
 
 @pytest.fixture(scope="module")

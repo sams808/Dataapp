@@ -49,7 +49,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from qt_widgets import PlotWidget
+from core.qt_widgets import PlotWidget
 from xas_science import (
     _SCIPY_AVAILABLE,
     Operation,
@@ -998,7 +998,7 @@ class XasWorkspace(QWidget):
         variance profile indicates how many distinct chemical species/
         environments the series contains (components with non-trivial
         variance ≈ independent spectral signatures)."""
-        from cluster_science import build_feature_matrix, pca_scores
+        from core.cluster_science import build_feature_matrix, pca_scores
 
         specs = self._analysis_selected_spectra()
         if len(specs) < 3:

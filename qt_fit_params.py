@@ -228,7 +228,7 @@ class FitParamDialog(QDialog):
     def _auto_find_peaks(self) -> None:
         if self._x is None or self._y is None:
             return
-        from fitting_science import find_peak_candidates
+        from core.fitting_science import find_peak_candidates
         centers = find_peak_candidates(
             self._x, self._y, max_peaks=10,
             min_prominence_sigma=float(self.detection_limit_spin.value()),

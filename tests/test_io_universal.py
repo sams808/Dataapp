@@ -8,7 +8,7 @@ the old (pre-fix) pipeline's output.
 from __future__ import annotations
 
 
-import io_universal as iou
+import core.io_universal as iou
 
 
 # --------------------------------------------------------------------------

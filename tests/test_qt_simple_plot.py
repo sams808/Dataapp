@@ -9,8 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from qt_models import Spectrum, SpectrumLibrary
-from qt_shell import NAV_ITEMS, PrismMainWindow, _load_spectrum_from_path
+from core.qt_models import Spectrum, SpectrumLibrary
+from core.qt_shell import NAV_ITEMS, PrismMainWindow, _load_spectrum_from_path
 from qt_simple_plot import SimplePlotWorkspace
 
 _CUBIC_CIF = """\
@@ -270,7 +270,7 @@ def test_rapid_axis_typing_coalesces_into_one_render(qtbot, raman_example_path, 
 
 
 def test_plot_widget_mouse_readout_label_exists(qtbot):
-    from qt_widgets import PlotWidget
+    from core.qt_widgets import PlotWidget
     widget = PlotWidget()
     qtbot.addWidget(widget)
     assert widget.coords_label.text() == ""

@@ -20,9 +20,9 @@ from PySide6.QtWidgets import (
 )
 
 from baseline_science import BASELINE_METHODS, BASELINE_PARAM_DEFS, compute_baseline, parse_roi_text
-from qt_models import Spectrum, SpectrumLibrary
-from qt_settings_store import PerItemSettingsStore
-from qt_widgets import PlotWidget
+from core.qt_models import Spectrum, SpectrumLibrary
+from core.qt_settings_store import PerItemSettingsStore
+from core.qt_widgets import PlotWidget
 
 
 def _default_settings() -> Dict[str, str]:

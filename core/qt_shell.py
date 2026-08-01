@@ -26,11 +26,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import io_universal
+import core.io_universal as io_universal
 from qt_dta import DtaWorkspace
-from qt_models import Spectrum, SpectrumLibrary
+from core.qt_models import Spectrum, SpectrumLibrary
 from qt_multi_fit import MultiFitWorkspace
-from qt_settings_store import PerItemSettingsStore
+from core.qt_settings_store import PerItemSettingsStore
 from qt_simple_plot import SimplePlotWorkspace
 from qt_single_fit import SingleFitWorkspace
 from qt_baseline import BaselineWorkspace
@@ -41,7 +41,7 @@ from qt_saxs import SaxsWorkspace
 from qt_xrd import XrdIdWorkspace
 from qt_htxrd import HtxrdWorkspace
 from qt_rruff import RruffMatchWorkspace
-from qt_widgets import PlotWidget
+from core.qt_widgets import PlotWidget
 from qt_xas import XasWorkspace
 
 logger = logging.getLogger("prism")
@@ -182,7 +182,7 @@ class CombineDialog(QDialog):
         return f"{self.spectra[0].title}_combined{len(self.spectra)}"
 
     def _on_create(self) -> None:
-        import spectrum_math as sm
+        import core.spectrum_math as sm
         try:
             if len(self.spectra) == 1:
                 sp = self.spectra[0]
@@ -519,7 +519,7 @@ class LibraryPage(QWidget):
     _undo_delete = _undo
 
     def _on_custom_import_clicked(self) -> None:
-        from qt_custom_import import CustomImportDialog
+        from core.qt_custom_import import CustomImportDialog
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Custom import", "", "All files (*.*)",
         )
@@ -579,7 +579,7 @@ class PrismMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         import os
-        from qt_help import APP_NAME, APP_VERSION, asset_path
+        from core.qt_help import APP_NAME, APP_VERSION, asset_path
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         icon_path = asset_path("prism_logo.png")
         if os.path.isfile(icon_path):
@@ -720,7 +720,7 @@ class PrismMainWindow(QMainWindow):
             modules_menu.addAction(act)
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction("Quick-start guide", self.show_help, "F1")
-        from qt_help import MODULE_GUIDES
+        from core.qt_help import MODULE_GUIDES
         guides_menu = help_menu.addMenu("Module guides")
         for gname in MODULE_GUIDES:
             guides_menu.addAction(gname, lambda g=gname: self.show_module_guide(g))
@@ -764,11 +764,11 @@ class PrismMainWindow(QMainWindow):
             self.nav.setCurrentRow(NAV_ITEMS.index(NAV_LIBRARY))
 
     def show_module_guide(self, name: str) -> None:
-        from qt_help import MODULE_GUIDES, HelpDialog
+        from core.qt_help import MODULE_GUIDES, HelpDialog
         HelpDialog(self, html=MODULE_GUIDES[name], title=f"{name} — guide").exec()
 
     def show_credits(self) -> None:
-        from qt_help import CREDITS_HTML, HelpDialog
+        from core.qt_help import CREDITS_HTML, HelpDialog
         HelpDialog(self, html=CREDITS_HTML, title="Credits").exec()
 
     def closeEvent(self, event) -> None:
@@ -779,11 +779,11 @@ class PrismMainWindow(QMainWindow):
         super().closeEvent(event)
 
     def show_help(self) -> None:
-        from qt_help import HelpDialog
+        from core.qt_help import HelpDialog
         HelpDialog(self).exec()
 
     def show_about(self) -> None:
-        from qt_help import ABOUT_HTML, HelpDialog
+        from core.qt_help import ABOUT_HTML, HelpDialog
         HelpDialog(self, html=ABOUT_HTML, title="About PRISM").exec()
 
     def _on_rruff_send_cifs(self, cif_paths) -> None:
@@ -797,7 +797,7 @@ class PrismMainWindow(QMainWindow):
         if self._console_dock is None:
             import numpy as np
             import pandas as pd
-            from qt_console import ConsoleDock
+            from core.qt_console import ConsoleDock
             self._console_dock = ConsoleDock({
                 "window": self,
                 "library": self.library,
@@ -817,7 +817,7 @@ class PrismMainWindow(QMainWindow):
         """Dark mode restyles the Qt chrome only — matplotlib plot areas
         stay white so what's on screen always matches PNG/SVG/PDF export."""
         from PySide6.QtWidgets import QApplication
-        from qt_theme import apply_theme
+        from core.qt_theme import apply_theme
         app = QApplication.instance()
         if app is not None:
             apply_theme(app, dark=enabled)
@@ -829,7 +829,7 @@ class PrismMainWindow(QMainWindow):
     # be added without breaking old projects.
     # ------------------------------------------------------------------
     def save_project(self) -> None:
-        import project_io
+        import core.project_io as project_io
         path, _ = QFileDialog.getSaveFileName(self, "Save project as…", "", "PRISM project (*.prism);;Legacy project (*.dataapp)")
         if not path:
             return
@@ -855,7 +855,7 @@ class PrismMainWindow(QMainWindow):
         self.statusBar().showMessage(f"Project saved: {path}")
 
     def open_project(self) -> None:
-        import project_io
+        import core.project_io as project_io
         path, _ = QFileDialog.getOpenFileName(self, "Open project", "", "PRISM projects (*.prism *.dataapp);;All files (*.*)")
         if not path:
             return

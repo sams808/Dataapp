@@ -3,7 +3,7 @@ qt_help.py — in-app Help: the F1 quick-start guide (per-workspace, written
 for a group member opening the app for the first time) and the About
 dialog (versions + the citations the reference databases ask for).
 
-docs/USER_GUIDE.md is generated from this file — run make_user_guide.py
+docs/USER_GUIDE.md is generated from this file — run tools/make_user_guide.py
 after editing, never edit the markdown directly.
 """
 from __future__ import annotations
@@ -20,11 +20,15 @@ APP_TAGLINE = "Platform for Research In Spectroscopy & Materials"
 
 
 def asset_path(name: str) -> str:
-    """Path to a bundled asset (assets/ next to the code, or the PyInstaller
+    """Path to a bundled asset (repo-root assets/ in dev, or the PyInstaller
     bundle dir when frozen)."""
     import os
     import sys
-    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    if hasattr(sys, "_MEIPASS"):
+        base = sys._MEIPASS
+    else:
+        # this file lives in core/, so assets/ is one level up at repo root
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, "assets", name)
 
 

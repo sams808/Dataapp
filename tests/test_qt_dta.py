@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from qt_dta import DtaWorkspace
-from qt_shell import PrismMainWindow, _load_spectrum_from_path
+from core.qt_shell import PrismMainWindow, _load_spectrum_from_path
 
 
 def _dta_record(dta_example_path):
@@ -117,7 +117,7 @@ def test_shell_dta_page_picks_up_library_records(qtbot, dta_example_path):
     spectrum = _load_spectrum_from_path(str(dta_example_path))
     window.library.add(spectrum)
 
-    from qt_shell import NAV_ITEMS
+    from core.qt_shell import NAV_ITEMS
     window.nav.setCurrentRow(NAV_ITEMS.index("DTA / Thermal"))
     qtbot.wait(20)
 

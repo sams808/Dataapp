@@ -1,8 +1,8 @@
 """Tests for qt_help.py — the in-app quick-start guide and About dialog."""
 from __future__ import annotations
 
-from qt_help import ABOUT_HTML, HELP_HTML, HelpDialog
-from qt_shell import NAV_ITEMS, PrismMainWindow
+from core.qt_help import ABOUT_HTML, HELP_HTML, HelpDialog
+from core.qt_shell import NAV_ITEMS, PrismMainWindow
 
 
 def test_help_covers_every_workspace():

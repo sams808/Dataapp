@@ -19,8 +19,8 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
-from qt_models import Spectrum, SpectrumLibrary
-from qt_widgets import PlotWidget
+from core.qt_models import Spectrum, SpectrumLibrary
+from core.qt_widgets import PlotWidget
 from saxs_core.analysis import (
     auto_detect_guinier_region, auto_detect_peak_window, auto_detect_porod_region,
     fit_guinier, fit_porod_general, fit_pseudo_bragg_peak,
@@ -586,7 +586,7 @@ class SaxsWorkspace(QWidget):
                 "stages": result.stages, "mask_regions": result.mask_regions}
 
     def run_composite_fit(self) -> None:
-        from qt_worker import run_in_thread
+        from core.qt_worker import run_in_thread
         c = self._curve_by_name(self.comp_combo.currentText())
         if c is None:
             QMessageBox.warning(self, "Composite fit", "Import and pick a curve first.")
@@ -742,7 +742,7 @@ class SaxsWorkspace(QWidget):
 
     # ------------------------------------------------------------------
     def run_composite_batch(self) -> None:
-        from qt_worker import run_in_thread
+        from core.qt_worker import run_in_thread
         rows = sorted({i.row() for i in self.comp_batch_list.selectedIndexes()})
         if not rows:
             QMessageBox.warning(self, "Composite batch", "Select at least one curve in the batch list.")

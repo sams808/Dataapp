@@ -5,7 +5,7 @@ bug and Simple Plot's multi-select state-bleed bug happened independently).
 """
 from __future__ import annotations
 
-from qt_settings_store import PerItemSettingsStore
+from core.qt_settings_store import PerItemSettingsStore
 
 
 def test_get_creates_default_on_first_access():

@@ -31,9 +31,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from fitting_science import find_peak_candidates
-from qt_models import SpectrumLibrary
-from qt_widgets import PlotWidget
+from core.fitting_science import find_peak_candidates
+from core.qt_models import SpectrumLibrary
+from core.qt_widgets import PlotWidget
 from rruff_science import (
     RRUFF_ATTRIBUTION_NOTE,
     RRUFF_CACHE_DIR,
@@ -294,7 +294,7 @@ class RruffMatchWorkspace(QWidget):
         button.setText(busy_text)
         self.db_status_label.setText("Starting download…")
         self._dl_timer.start()
-        from qt_worker import run_in_thread
+        from core.qt_worker import run_in_thread
         run_in_thread(work, lambda result: self._on_download_done(on_done, result),
                      self._on_download_error)
 

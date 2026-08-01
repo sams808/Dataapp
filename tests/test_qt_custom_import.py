@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from qt_custom_import import AUTO, CustomImportDialog
+from core.qt_custom_import import AUTO, CustomImportDialog
 
 
 def _three_column_file(tmp_path):

@@ -37,7 +37,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from qt_models import Spectrum
+from core.qt_models import Spectrum
 
 PROJECT_FORMAT = "prism-project"
 LEGACY_FORMATS = {"dataapp-project"}  # pre-rename projects still load

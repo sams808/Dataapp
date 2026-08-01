@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import io_universal as iou
+import core.io_universal as iou
 
 EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "EXAMPLES"
 RASX_PATH = EXAMPLES_DIR / "HTXRD_example.rasx"

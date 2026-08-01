@@ -50,7 +50,7 @@ def html_to_md(html: str) -> str:
 
 
 def main() -> None:
-    import qt_help
+    import core.qt_help as qt_help
 
     parts = [
         "<!-- Generated from qt_help.py by make_user_guide.py. Edit qt_help.py, then regenerate. -->\n",

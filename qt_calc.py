@@ -23,8 +23,8 @@ from PySide6.QtWidgets import (
 )
 
 import calc_science as cs
-from qt_models import Spectrum, SpectrumLibrary
-from qt_widgets import PlotWidget
+from core.qt_models import Spectrum, SpectrumLibrary
+from core.qt_widgets import PlotWidget
 
 _SUFFIX = {
     "add": "add", "subtract": "sub", "multiply": "mul", "divide": "div",
@@ -254,7 +254,7 @@ class CalcWorkspace(QWidget):
                        (res.grid, res.residual, f"{target.title}_lcf_residual")]
 
         elif group == "cluster":
-            import cluster_science as cl
+            import core.cluster_science as cl
             n = int(_to_float(self._param("n_clusters"), 3) or 3)
             matrix, cgrid = cl.build_feature_matrix([(s.x, s.y) for s in selected])
             res = cl.cluster_spectra(matrix, method=op, n_clusters=n)

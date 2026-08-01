@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import spectrum_math as sm
+import core.spectrum_math as sm
 
 
 def test_sum_on_identical_grids():

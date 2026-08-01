@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 
 import xas_mass
-from qt_models import SpectrumLibrary
+from core.qt_models import SpectrumLibrary
 from qt_saxs import SaxsWorkspace
-from qt_shell import MODULES, NAV_ITEMS, PrismMainWindow
+from core.qt_shell import MODULES, NAV_ITEMS, PrismMainWindow
 from saxs_core.analysis import fit_guinier, fit_pseudo_bragg_peak
 from saxs_core.curve import Curve
 from saxs_core.waxs import auto_find_peaks, fit_waxs_peaks

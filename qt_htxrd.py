@@ -48,7 +48,7 @@ from htxrd_science import (
     track_peak_guided,
     track_peaks_multi,
 )
-from qt_widgets import PlotWidget
+from core.qt_widgets import PlotWidget
 
 MAP_CMAPS = ["magma", "inferno", "viridis", "plasma", "jet", "Greys", "RdBu_r"]
 TRACK_COLORS = ["royalblue", "crimson", "seagreen", "darkorange", "purple", "brown", "teal"]
@@ -484,7 +484,7 @@ class HtxrdWorkspace(QWidget):
 
         self._track_guide_btn.setEnabled(False)
         self._track_guide_btn.setText("Tracking…")
-        from qt_worker import run_in_thread
+        from core.qt_worker import run_in_thread
         run_in_thread(
             lambda: track_peak_guided(patterns, picks, half_window=half, shape=shape,
                                       absence_sigma=absence_sigma, window_label=label),
@@ -674,7 +674,7 @@ class HtxrdWorkspace(QWidget):
         self._track_btn.setEnabled(False)
         self._track_btn.setText("Tracking…")
 
-        from qt_worker import run_in_thread
+        from core.qt_worker import run_in_thread
         run_in_thread(
             lambda: track_peaks_multi(patterns, windows, shape=shape,
                                       seed_from_previous=seed, absence_sigma=absence_sigma),

@@ -60,7 +60,7 @@ def test_glass_workspace_basicity_flow(qtbot):
 
 
 def test_shell_has_glass_page(qtbot):
-    from qt_shell import NAV_ITEMS, PrismMainWindow
+    from core.qt_shell import NAV_ITEMS, PrismMainWindow
     window = PrismMainWindow()
     qtbot.addWidget(window)
     window.nav.setCurrentRow(NAV_ITEMS.index("Glass"))

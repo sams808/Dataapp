@@ -4,8 +4,8 @@ from __future__ import annotations
 import numpy as np
 import rampy as rp
 
-from qt_models import Spectrum
-from qt_shell import PrismMainWindow
+from core.qt_models import Spectrum
+from core.qt_shell import PrismMainWindow
 
 
 def _spectrum(title="s1"):

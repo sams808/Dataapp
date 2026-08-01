@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import rampy as rp
 
-import fitting_science as fs
+import core.fitting_science as fs
 
 
 def _gaussian_component(center=500.0, fwhm=30.0, amp=100.0, shape="G", eta=0.5):

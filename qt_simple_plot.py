@@ -34,8 +34,8 @@ from PySide6.QtWidgets import (
 )
 
 from cif_tools import bragg_peaks_from_cif_generic, list_cif_files_case_insensitive
-from qt_models import SpectrumLibrary
-from qt_widgets import PlotWidget
+from core.qt_models import SpectrumLibrary
+from core.qt_widgets import PlotWidget
 
 CIF_COLORS = ["crimson", "royalblue", "seagreen", "darkorange", "purple", "goldenrod"]
 LINE_COLORS = ["navy", "darkred", "seagreen", "darkorange", "purple", "teal", "brown", "indigo"]

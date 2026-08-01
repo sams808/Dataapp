@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 
 from qt_calc import CalcWorkspace
-from qt_models import Spectrum, SpectrumLibrary
-from qt_shell import NAV_ITEMS, PrismMainWindow
+from core.qt_models import Spectrum, SpectrumLibrary
+from core.qt_shell import NAV_ITEMS, PrismMainWindow
 
 
 def _spectrum(title, value=1.0, n=101):

@@ -8,7 +8,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import io_universal as iu
+import core.io_universal as iu
 
 
 def _write(tmp_path, name, content):

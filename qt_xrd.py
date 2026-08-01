@@ -28,9 +28,9 @@ from PySide6.QtWidgets import (
 )
 
 import xrd_id_science as xid
-from fitting_science import find_peak_candidates
-from qt_models import SpectrumLibrary
-from qt_widgets import PlotWidget
+from core.fitting_science import find_peak_candidates
+from core.qt_models import SpectrumLibrary
+from core.qt_widgets import PlotWidget
 
 RESULT_COLUMNS = ["FoM %", "Mineral / name", "Formula", "Source", "Code", "Q", "Space group", "Matched"]
 CARD_COLORS = ["crimson", "royalblue", "seagreen", "darkorange", "purple", "teal"]
@@ -150,7 +150,7 @@ class XrdIdWorkspace(QWidget):
         left_layout.addLayout(el_row2)
 
         left_layout.addWidget(QLabel("Card filters"))
-        from qt_widgets import CheckComboBox
+        from core.qt_widgets import CheckComboBox
         filt_row = QHBoxLayout()
         self.system_filter = CheckComboBox("systems")
         self.system_filter.set_items(xid.CRYSTAL_SYSTEMS)
@@ -397,7 +397,7 @@ class XrdIdWorkspace(QWidget):
                 added.append(entry)
             return entries, added
 
-        from qt_worker import run_in_thread
+        from core.qt_worker import run_in_thread
         run_in_thread(work, self._on_register_done, self._on_register_error)
 
     def _on_register_error(self, traceback_text: str) -> None:
@@ -540,7 +540,7 @@ class XrdIdWorkspace(QWidget):
             crystal_systems=self.system_filter.checked(),
             spacegroup_contains=self.sg_filter_edit.text().strip(),
         )
-        from qt_worker import run_in_thread
+        from core.qt_worker import run_in_thread
         run_in_thread(
             lambda: xid.search_match(list(peaks), list(self._query_int), **kwargs),
             self._on_search_done, self._on_search_error,

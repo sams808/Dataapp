@@ -46,14 +46,14 @@ from PySide6.QtWidgets import (
     QSplitter, QVBoxLayout, QWidget,
 )
 
-from fitting_science import (
+from core.fitting_science import (
     build_lmfit_parameters, compute_chi2, compute_model, compute_r_squared,
     fit_spectrum, origin_lm_iteration, peak_centroid,
 )
 from qt_fit_params import FitParamDialog
-from qt_models import SpectrumLibrary
-from qt_settings_store import PerItemSettingsStore
-from qt_widgets import PlotWidget
+from core.qt_models import SpectrumLibrary
+from core.qt_settings_store import PerItemSettingsStore
+from core.qt_widgets import PlotWidget
 
 COLORS = ["black", "red", "seagreen", "royalblue", "orange", "purple", "brown", "indigo"]
 
@@ -681,7 +681,7 @@ class SingleFitWorkspace(QWidget):
         """F-test confidence-interval profiling (lmfit conf_interval) for
         the last classic fit — the rigorous complement to the covariance
         ±1σ values in reports."""
-        from fitting_science import compute_confidence_intervals
+        from core.fitting_science import compute_confidence_intervals
         if self._current_fit_result is None:
             QMessageBox.information(self, "Confidence intervals", "Run a classic fit ('Fit !') first.")
             return

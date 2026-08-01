@@ -105,7 +105,7 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO)
     app = QApplication(sys.argv)
 
-    from qt_help import APP_NAME, asset_path
+    from core.qt_help import APP_NAME, asset_path
     app.setApplicationName(APP_NAME)
     icon_path = asset_path("prism_logo.png")
     if os.path.isfile(icon_path):
@@ -125,9 +125,9 @@ def main() -> int:
         app.processEvents()
 
     # Heavy imports happen behind the splash, not before it.
-    from qt_shell import PrismMainWindow
-    from qt_theme import apply_theme
-    import qt_exception_hook
+    from core.qt_shell import PrismMainWindow
+    from core.qt_theme import apply_theme
+    import core.qt_exception_hook as qt_exception_hook
 
     apply_theme(app)
     qt_exception_hook.install(app)

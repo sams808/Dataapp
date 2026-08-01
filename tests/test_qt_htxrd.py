@@ -10,7 +10,7 @@ import pytest
 import rampy as rp
 
 from qt_htxrd import HtxrdWorkspace
-from qt_shell import PrismMainWindow, NAV_ITEMS
+from core.qt_shell import PrismMainWindow, NAV_ITEMS
 
 
 def _write_series(tmp_path, temps=(100, 200, 300), center_by_temp=None, noise=0.0):

@@ -42,7 +42,7 @@ def _series_files():
 
 def _fit_main_band(path):
     from baseline_science import compute_baseline
-    from fitting_science import compute_r_squared, fit_spectrum
+    from core.fitting_science import compute_r_squared, fit_spectrum
 
     d = np.loadtxt(path)
     xb, ysub, _ = compute_baseline(d[:, 0], d[:, 1], method="arPLS", params={"lam": 1e7, "ratio": 0.01})

@@ -8,8 +8,8 @@ import pytest
 
 import figures_science as fsc
 from qt_figures import FiguresWorkspace
-from qt_models import Spectrum, SpectrumLibrary
-from qt_shell import NAV_ITEMS, PrismMainWindow
+from core.qt_models import Spectrum, SpectrumLibrary
+from core.qt_shell import NAV_ITEMS, PrismMainWindow
 
 
 # --------------------------------------------------------------------------

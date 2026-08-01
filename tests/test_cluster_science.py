@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import rampy as rp
 
-import cluster_science as cs
+import core.cluster_science as cs
 from conftest import ARCHIVE_DIR
 
 
@@ -98,7 +98,7 @@ def test_clustering_runs_on_real_pbi0_map_series(pbi0_map_paths):
     """Real-data smoke: the archived 56-point Raman map series must cluster
     without errors and produce sane structures (no ground-truth labels
     exist, so only invariants are checked)."""
-    import io_universal as iu
+    import core.io_universal as iu
 
     paths = pbi0_map_paths[:20]  # subset keeps the test fast
     assert len(paths) >= 10

@@ -33,8 +33,8 @@ from PySide6.QtWidgets import (
 )
 
 import figures_science as fsc
-from qt_models import SpectrumLibrary
-from qt_widgets import PlotWidget
+from core.qt_models import SpectrumLibrary
+from core.qt_widgets import PlotWidget
 
 LAYER_COLORS = ["black", "crimson", "royalblue", "seagreen", "darkorange", "purple", "teal", "brown"]
 

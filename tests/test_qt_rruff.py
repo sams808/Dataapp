@@ -14,9 +14,9 @@ import json
 import numpy as np
 import rampy as rp
 
-from qt_models import Spectrum, SpectrumLibrary
+from core.qt_models import Spectrum, SpectrumLibrary
 from qt_rruff import RruffMatchWorkspace
-from qt_shell import PrismMainWindow
+from core.qt_shell import PrismMainWindow
 
 
 def _write_fake_cache(cache_dir, raw_dir):
@@ -480,14 +480,14 @@ def test_shell_rruff_send_cifs_adds_to_raman_overlay(qtbot, tmp_path, monkeypatc
 
 
 def test_shell_rruff_page_picks_up_library_records(qtbot, raman_example_path):
-    from qt_shell import _load_spectrum_from_path
+    from core.qt_shell import _load_spectrum_from_path
 
     window = PrismMainWindow()
     qtbot.addWidget(window)
     spectrum = _load_spectrum_from_path(str(raman_example_path))
     window.library.add(spectrum)
 
-    from qt_shell import NAV_ITEMS
+    from core.qt_shell import NAV_ITEMS
     window.nav.setCurrentRow(NAV_ITEMS.index("Raman ID"))
     qtbot.wait(20)
 

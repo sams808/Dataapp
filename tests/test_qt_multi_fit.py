@@ -12,10 +12,10 @@ import numpy as np
 import pytest
 import rampy as rp
 
-from qt_models import Spectrum, SpectrumLibrary
+from core.qt_models import Spectrum, SpectrumLibrary
 from qt_multi_fit import MultiFitWorkspace
-from qt_settings_store import PerItemSettingsStore
-from qt_shell import NAV_ITEMS, PrismMainWindow, _load_spectrum_from_path
+from core.qt_settings_store import PerItemSettingsStore
+from core.qt_shell import NAV_ITEMS, PrismMainWindow, _load_spectrum_from_path
 from qt_single_fit import SingleFitWorkspace
 
 

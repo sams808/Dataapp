@@ -5,8 +5,8 @@ manage the QApplication/event loop.
 from __future__ import annotations
 
 
-from qt_shell import NAV_ITEMS, PrismMainWindow, _load_spectrum_from_path
-from qt_widgets import PlotWidget
+from core.qt_shell import NAV_ITEMS, PrismMainWindow, _load_spectrum_from_path
+from core.qt_widgets import PlotWidget
 
 
 def test_plot_widget_constructs_and_clears(qtbot):
@@ -95,14 +95,14 @@ def test_two_imports_with_same_stem_do_not_collide(qtbot, raman_example_path, tm
 # --------------------------------------------------------------------------
 
 def test_modules_cover_every_non_library_nav_item():
-    from qt_shell import MODULES, NAV_ITEMS, NAV_LIBRARY
+    from core.qt_shell import MODULES, NAV_ITEMS, NAV_LIBRARY
     in_modules = [p for _color, pages in MODULES.values() for p in pages]
     assert sorted(in_modules) == sorted(n for n in NAV_ITEMS if n != NAV_LIBRARY)
     assert len(in_modules) == len(set(in_modules))  # no page in two modules
 
 
 def test_module_toggle_hides_nav_rows_and_falls_back_to_library(qtbot):
-    from qt_shell import PrismMainWindow, NAV_ITEMS
+    from core.qt_shell import PrismMainWindow, NAV_ITEMS
     window = PrismMainWindow()
     qtbot.addWidget(window)
     xas_row = NAV_ITEMS.index("XAS")
@@ -122,7 +122,7 @@ def test_module_toggle_hides_nav_rows_and_falls_back_to_library(qtbot):
 def test_fresh_install_defaults_to_raman_only(qtbot):
     """User request: a new user starts with only the Raman module on."""
     from PySide6.QtCore import QSettings
-    from qt_shell import MODULES, PrismMainWindow, NAV_ITEMS
+    from core.qt_shell import MODULES, PrismMainWindow, NAV_ITEMS
     s = QSettings("PRISM", "PRISM")
     for m in MODULES:  # simulate the fresh-install store (no conftest override)
         s.setValue(f"modules/{m}", m == "Raman")
@@ -135,7 +135,7 @@ def test_fresh_install_defaults_to_raman_only(qtbot):
 
 
 def test_module_state_persists_via_qsettings(qtbot):
-    from qt_shell import PrismMainWindow, NAV_ITEMS
+    from core.qt_shell import PrismMainWindow, NAV_ITEMS
     w1 = PrismMainWindow()
     qtbot.addWidget(w1)
     w1.module_checks["Thermal"].setChecked(False)
@@ -148,8 +148,8 @@ def test_module_state_persists_via_qsettings(qtbot):
 
 
 def test_window_title_and_credits(qtbot):
-    from qt_help import APP_NAME, APP_VERSION, CREDITS_HTML
-    from qt_shell import PrismMainWindow
+    from core.qt_help import APP_NAME, APP_VERSION, CREDITS_HTML
+    from core.qt_shell import PrismMainWindow
     window = PrismMainWindow()
     qtbot.addWidget(window)
     assert window.windowTitle() == f"{APP_NAME} {APP_VERSION}"
@@ -167,7 +167,7 @@ def test_window_title_and_credits(qtbot):
 
 
 def test_nav_items_have_module_colors(qtbot):
-    from qt_shell import PrismMainWindow, NAV_ITEMS
+    from core.qt_shell import PrismMainWindow, NAV_ITEMS
     window = PrismMainWindow()
     qtbot.addWidget(window)
     for row in range(window.nav.count()):

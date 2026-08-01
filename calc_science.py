@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from spectrum_math import _common_grid, _on_grid
+from core.spectrum_math import _common_grid, _on_grid
 
 
 XY = Tuple[np.ndarray, np.ndarray]

@@ -16,9 +16,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-import io_universal
-from qt_models import Spectrum
-from qt_widgets import PlotWidget
+import core.io_universal as io_universal
+from core.qt_models import Spectrum
+from core.qt_widgets import PlotWidget
 
 AUTO = "(auto-detect)"
 

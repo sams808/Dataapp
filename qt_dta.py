@@ -27,8 +27,8 @@ from dta_science import (
     compute_tg_parallel_improved, moving_average_10, resolve_baseline_params,
     _line_y,
 )
-from io_universal import parse_ta_sdt_txt
-from qt_widgets import PlotWidget
+from core.io_universal import parse_ta_sdt_txt
+from core.qt_widgets import PlotWidget
 
 
 def _to_float(text: str) -> Optional[float]:

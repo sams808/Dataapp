@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from scipy.special import erf
 
-from qt_shell import NAV_ITEMS, PrismMainWindow
+from core.qt_shell import NAV_ITEMS, PrismMainWindow
 from qt_xas import XasWorkspace
 from xas_science import Spectrum, _uid
 

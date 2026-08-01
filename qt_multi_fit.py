@@ -35,14 +35,14 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from fitting_science import (
+from core.fitting_science import (
     compute_r_squared,
     fit_spectrum, peak_centroid,
 )
 from qt_fit_params import FitParamDialog, list_model_names, load_model, _default_model_dir
-from qt_models import SpectrumLibrary
-from qt_settings_store import PerItemSettingsStore
-from qt_widgets import PlotWidget
+from core.qt_models import SpectrumLibrary
+from core.qt_settings_store import PerItemSettingsStore
+from core.qt_widgets import PlotWidget
 
 COLORS = ["black", "red", "seagreen", "royalblue", "orange", "purple", "brown", "indigo"]
 
@@ -271,7 +271,7 @@ class MultiFitWorkspace(QWidget):
         """Validates inputs on the UI thread, then runs the fits on a
         background worker (qt_worker) so a long batch never freezes the
         app; results land back on the main thread in _on_batch_done."""
-        from qt_worker import run_in_thread
+        from core.qt_worker import run_in_thread
 
         recipe_name = self.recipe_combo.currentText()
         if not recipe_name:

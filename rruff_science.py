@@ -220,7 +220,7 @@ def ingest_zip(
     Raw text is written under `raw_dir` for later full-spectrum overlay;
     the returned records are what actually goes into the searchable index.
     """
-    from fitting_science import find_peak_candidates
+    from core.fitting_science import find_peak_candidates
 
     os.makedirs(raw_dir, exist_ok=True)
     records: List[Dict[str, Any]] = []

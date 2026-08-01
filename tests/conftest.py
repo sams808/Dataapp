@@ -108,7 +108,7 @@ def _synchronous_workers():
     immediately after triggering an operation instead of polling for a
     worker thread to finish. Production code never flips this switch."""
     try:
-        import qt_worker
+        import core.qt_worker as qt_worker
     except Exception:
         yield
         return

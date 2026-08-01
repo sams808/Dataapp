@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from qt_console import ConsoleDock
-from qt_models import Spectrum, SpectrumLibrary
-from qt_shell import PrismMainWindow
+from core.qt_console import ConsoleDock
+from core.qt_models import Spectrum, SpectrumLibrary
+from core.qt_shell import PrismMainWindow
 
 
 def test_console_executes_and_shows_output(qtbot):
