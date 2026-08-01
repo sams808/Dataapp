@@ -19,7 +19,7 @@ pytest.importorskip("fabio")
 
 import fabio.edfimage
 
-from saxs_core import edf_reduction as edf
+from saxs.core import edf_reduction as edf
 
 
 EXAMPLES_DIR = os.path.join(os.path.dirname(__file__), "..", "EXAMPLES")

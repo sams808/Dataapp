@@ -35,9 +35,9 @@ from raman.qt_raman import RamanWorkspace
 from processing.qt_single_fit import SingleFitWorkspace
 from processing.qt_baseline import BaselineWorkspace
 from processing.qt_calc import CalcWorkspace
-from qt_figures import FiguresWorkspace
-from qt_glass import GlassWorkspace
-from qt_saxs import SaxsWorkspace
+from figures.qt_figures import FiguresWorkspace
+from glass.qt_glass import GlassWorkspace
+from saxs.qt_saxs import SaxsWorkspace
 from xrd.qt_xrd import XrdIdWorkspace
 from xrd.qt_htxrd import HtxrdWorkspace
 from raman.qt_rruff import RruffMatchWorkspace

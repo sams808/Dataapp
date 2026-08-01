@@ -13,7 +13,7 @@ import math
 import numpy as np
 import pytest
 
-from saxs_core.composite_models import (
+from saxs.core.composite_models import (
     COMPONENTS, BeaucageUnified, BroadPeak, Dab, FlatBackground, Guinier,
     GuinierPorod, PowerLaw, TeubnerStrey, ts_classic_from_physical,
     ts_physical_from_classic,

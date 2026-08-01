@@ -5,8 +5,8 @@ qt_help.py (the in-app F1 guide + About dialog) is the single source of the
 user documentation; this script converts its restricted HTML subset to
 markdown so the repo copy can never drift from what the app shows.
 
-Run after editing qt_help.py:
-    python make_user_guide.py
+Run from the repo root after editing core/qt_help.py:
+    python tools/make_user_guide.py
 """
 from __future__ import annotations
 
@@ -50,6 +50,12 @@ def html_to_md(html: str) -> str:
 
 
 def main() -> None:
+    import os
+    import sys
+    # this file lives in tools/, so add repo root to sys.path to import core.qt_help
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
     import core.qt_help as qt_help
 
     parts = [

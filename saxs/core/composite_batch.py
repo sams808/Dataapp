@@ -26,12 +26,12 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from saxs_core.composite_fit import PRESETS, CompositeModel, build_composite, build_preset
-from saxs_core.composite_staged import (
+from saxs.core.composite_fit import PRESETS, CompositeModel, build_composite, build_preset
+from saxs.core.composite_staged import (
     FitResult, _build_derived, _params_to_dict, _stage4_global,
     apply_hygiene, compute_diagnostics, fit_staged,
 )
-from saxs_core.curve import Curve
+from saxs.core.curve import Curve
 
 
 @dataclass
@@ -159,7 +159,7 @@ def legacy_gaussian_comparison(curve: Curve, window: Tuple[float, float]) -> Dic
     fit_pseudo_bragg_peak — already the exact same formulas). Returns
     None values (not a raised exception) when the legacy fit itself fails
     on this window, so a batch row can always be written."""
-    from saxs_core.analysis import fit_pseudo_bragg_peak
+    from saxs.core.analysis import fit_pseudo_bragg_peak
     try:
         r = fit_pseudo_bragg_peak(curve.q, curve.intensity, window[0], window[1])
         return {"d_gauss": r.d_spacing, "xi_gauss": r.xi_app}

@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-import figures_science as fsc
+import figures.figures_science as fsc
 from core.qt_models import SpectrumLibrary
 from core.qt_widgets import PlotWidget
 

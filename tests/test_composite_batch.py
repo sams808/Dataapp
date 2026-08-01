@@ -9,12 +9,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from saxs_core.composite_batch import (
+from saxs.core.composite_batch import (
     BatchItem, batch_to_csv_rows, legacy_gaussian_comparison, plot_sample_fit,
     plot_series_overview, run_batch, write_batch_csv,
 )
-from saxs_core.composite_fit import build_preset
-from saxs_core.curve import Curve
+from saxs.core.composite_fit import build_preset
+from saxs.core.curve import Curve
 
 
 def _ts_curve(sample_id, d, xi=3000.0, S=5e6, seed=0):
@@ -158,7 +158,7 @@ def test_plot_sample_fit_does_not_raise():
     curve = _ts_curve("s1", d=1200.0, seed=1)
     result = run_batch([BatchItem("s1", curve, order_hint=1)], multistart_n=2)
     fit = result.fits["s1"]
-    from saxs_core.composite_batch import _model_from_preset_name
+    from saxs.core.composite_batch import _model_from_preset_name
     model = _model_from_preset_name(fit.preset_chosen)
     fig = plot_sample_fit(fit, model, curve)
     assert fig is not None

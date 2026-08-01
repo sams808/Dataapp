@@ -8,10 +8,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from saxs_core.composite_fit import (
+from saxs.core.composite_fit import (
     PRESETS, CompositeModel, build_composite, build_preset, gaussian_smear,
 )
-from saxs_core.composite_models import COMPONENTS
+from saxs.core.composite_models import COMPONENTS
 
 
 # ---------------------------------------------------------------------------

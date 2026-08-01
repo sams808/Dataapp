@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-import glass_science as gs
+import glass.glass_science as gs
 
 SOURCES_NOTE = (
     "Λ: Rodriguez & McCloy, PNNL-20184 (2011) Table B.1 (Duffy & Ingram framework). "

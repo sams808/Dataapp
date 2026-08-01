@@ -145,8 +145,8 @@ from pathlib import Path
 
 import pytest
 
-from saxs_core.composite_staged import fit_staged
-from saxs_core.loader import load_curve
+from saxs.core.composite_staged import fit_staged
+from saxs.core.loader import load_curve
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "P5Bi8-12__corr.dat"
 

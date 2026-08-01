@@ -6,7 +6,7 @@ make_logo.py — generates the PRISM brand assets into assets/:
 
 Design: a light beam entering a prism and leaving as a dispersed spectrum
 whose bands land as diffraction sticks — one image for the whole suite:
-spectroscopy in, resolved data out. Regenerate any time: python make_logo.py
+spectroscopy in, resolved data out. Regenerate any time: python tools/make_logo.py
 """
 from __future__ import annotations
 
@@ -17,7 +17,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch, Polygon
 
-ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+# this file lives in tools/, so assets/ is one level up at repo root
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ASSETS = os.path.join(_REPO_ROOT, "assets")
 
 NAVY = "#141b2e"
 PRISM_FACE = "#e8ecf5"

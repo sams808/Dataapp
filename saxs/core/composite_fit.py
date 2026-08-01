@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from saxs_core.composite_models import COMPONENTS, Component
+from saxs.core.composite_models import COMPONENTS, Component
 
 if TYPE_CHECKING:
     import lmfit

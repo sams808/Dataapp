@@ -21,18 +21,18 @@ from PySide6.QtWidgets import (
 
 from core.qt_models import Spectrum, SpectrumLibrary
 from core.qt_widgets import PlotWidget
-from saxs_core.analysis import (
+from saxs.core.analysis import (
     auto_detect_guinier_region, auto_detect_peak_window, auto_detect_porod_region,
     fit_guinier, fit_porod_general, fit_pseudo_bragg_peak,
 )
-from saxs_core.chemistry import CapillaryConfig, SamplePhysicsConfig
-from saxs_core.composite_batch import BatchItem, batch_to_csv_rows, run_batch, write_batch_csv
-from saxs_core.composite_fit import PRESETS, CompositeModel, build_composite, build_preset
-from saxs_core.composite_staged import fit_staged, propose_windows
-from saxs_core.curve import Curve
-from saxs_core.loader import load_curve
-from saxs_core.reduction import CorrectionSettings, correct_sample
-from saxs_core.waxs import auto_find_peaks, fit_waxs_peaks
+from saxs.core.chemistry import CapillaryConfig, SamplePhysicsConfig
+from saxs.core.composite_batch import BatchItem, batch_to_csv_rows, run_batch, write_batch_csv
+from saxs.core.composite_fit import PRESETS, CompositeModel, build_composite, build_preset
+from saxs.core.composite_staged import fit_staged, propose_windows
+from saxs.core.curve import Curve
+from saxs.core.loader import load_curve
+from saxs.core.reduction import CorrectionSettings, correct_sample
+from saxs.core.waxs import auto_find_peaks, fit_waxs_peaks
 
 COMPOSITE_PRESET_CHOICES = ["Auto (BIC ladder)"] + list(PRESETS.keys())
 COMPOSITE_WINDOW_KEYS = ["W_peak", "W_hiq", "W_loq"]

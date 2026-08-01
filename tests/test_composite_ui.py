@@ -12,9 +12,9 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from qt_saxs import SaxsWorkspace
-from saxs_core.composite_fit import build_preset
-from saxs_core.curve import Curve
+from saxs.qt_saxs import SaxsWorkspace
+from saxs.core.composite_fit import build_preset
+from saxs.core.curve import Curve
 
 
 def _ts_curve(d=1200.0, xi=3000.0, name="synth_ts") -> Curve:
@@ -147,7 +147,7 @@ def test_composite_fit_real_profile_smoke(qtbot):
     """Sanity check against the same committed real fixture the frozen
     regression test uses -- confirms the UI path (not just fit_staged
     called directly) produces a sane, non-crashing result on real data."""
-    from saxs_core.loader import load_curve
+    from saxs.core.loader import load_curve
     fixture = os.path.join(os.path.dirname(__file__), "fixtures", "P5Bi8-12__corr.dat")
     widget = SaxsWorkspace()
     qtbot.addWidget(widget)

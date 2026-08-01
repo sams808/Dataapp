@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import glass_science as gs
+import glass.glass_science as gs
 
 
 def test_optical_basicity_pure_oxides_match_table():
@@ -48,7 +48,7 @@ def test_glassnet_predicts_finite_tg():
 
 
 def test_glass_workspace_basicity_flow(qtbot):
-    from qt_glass import GlassWorkspace
+    from glass.qt_glass import GlassWorkspace
     widget = GlassWorkspace()
     qtbot.addWidget(widget)
     widget.comp_edit.setPlainText("name SiO2 Na2O\nA 70 30")

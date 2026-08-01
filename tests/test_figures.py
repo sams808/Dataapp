@@ -6,8 +6,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import figures_science as fsc
-from qt_figures import FiguresWorkspace
+import figures.figures_science as fsc
+from figures.qt_figures import FiguresWorkspace
 from core.qt_models import Spectrum, SpectrumLibrary
 from core.qt_shell import NAV_ITEMS, PrismMainWindow
 
@@ -156,7 +156,7 @@ def test_export_figure_rescales_fonts_for_small_size(qtbot, tmp_path):
     out = tmp_path / "small.png"
     widget.width_edit.setText("5")
     widget.height_edit.setText("6")
-    import qt_figures
+    import figures.qt_figures as qt_figures
     from unittest.mock import patch
     with patch.object(qt_figures.QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out), ""))), \
          patch.object(widget.xy_plot.figure, "savefig", side_effect=_spy_savefig):
@@ -192,7 +192,7 @@ def test_ternary_tab_from_csv(qtbot, tmp_path):
     widget = FiguresWorkspace(library=SpectrumLibrary())
     qtbot.addWidget(widget)
 
-    import qt_figures
+    import figures.qt_figures as qt_figures
     from unittest.mock import patch
     with patch.object(qt_figures.QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(csv), ""))):
         widget.load_ternary_csv()
@@ -286,7 +286,7 @@ def test_table_plots_from_csv(qtbot, tmp_path):
     csv.write_text("a,b,c\n1,2,3\n2,4,6\n3,6,9\n4,8,12\n")
     widget = FiguresWorkspace(library=SpectrumLibrary())
     qtbot.addWidget(widget)
-    import qt_figures
+    import figures.qt_figures as qt_figures
     from unittest.mock import patch
     with patch.object(qt_figures.QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(csv), ""))):
         widget.load_table_csv()

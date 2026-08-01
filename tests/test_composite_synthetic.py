@@ -15,10 +15,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from saxs_core.composite_fit import build_composite, build_preset
-from saxs_core.composite_staged import fit_staged
-from saxs_core.curve import Curve
-from saxs_core.loader import load_curve
+from saxs.core.composite_fit import build_composite, build_preset
+from saxs.core.composite_staged import fit_staged
+from saxs.core.curve import Curve
+from saxs.core.loader import load_curve
 
 FIXTURE_PATH = __file__.rsplit("\\", 1)[0] + r"\fixtures\P5Bi8-12__corr.dat"
 

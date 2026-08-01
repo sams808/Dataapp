@@ -7,11 +7,11 @@ import pytest
 
 import xas.xas_mass as xas_mass
 from core.qt_models import SpectrumLibrary
-from qt_saxs import SaxsWorkspace
+from saxs.qt_saxs import SaxsWorkspace
 from core.qt_shell import MODULES, NAV_ITEMS, PrismMainWindow
-from saxs_core.analysis import fit_guinier, fit_pseudo_bragg_peak
-from saxs_core.curve import Curve
-from saxs_core.waxs import auto_find_peaks, fit_waxs_peaks
+from saxs.core.analysis import fit_guinier, fit_pseudo_bragg_peak
+from saxs.core.curve import Curve
+from saxs.core.waxs import auto_find_peaks, fit_waxs_peaks
 
 
 def _sphere_curve(rg=30.0, name="sample"):

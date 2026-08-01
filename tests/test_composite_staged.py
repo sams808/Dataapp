@@ -10,8 +10,8 @@ import math
 import numpy as np
 import pytest
 
-from saxs_core.composite_fit import PRESETS, build_composite, build_preset
-from saxs_core.composite_staged import (
+from saxs.core.composite_fit import PRESETS, build_composite, build_preset
+from saxs.core.composite_staged import (
     MorphologyResult, _bg_c_plateau_bounds, _stage1_bg, _stage3_add_beaucage,
     _walk_ladder, apply_hygiene, classify_morphology,
     compute_diagnostics, detect_knee_q, detect_midq_hump, detect_peak_q,
@@ -19,7 +19,7 @@ from saxs_core.composite_staged import (
     propose_windows, propose_windows_from_classifier, select_best_preset,
     ts_window_local_delta_bic,
 )
-from saxs_core.curve import Curve
+from saxs.core.curve import Curve
 
 
 def _ts_curve(name="synthetic_peaked", d=1200.0, xi=3000.0, S=5e6, seed=0, noise=True):
@@ -282,7 +282,7 @@ def test_fit_staged_runs_on_real_physic_based_profile_when_available():
     real_path = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based\P5Bi8-12__corr.dat"
     if not os.path.isfile(real_path):
         pytest.skip("real SAXS data folder not present on this machine")
-    from saxs_core.loader import load_curve
+    from saxs.core.loader import load_curve
     curve = load_curve(real_path)
     result = fit_staged(curve, multistart_n=2)
     assert result.gof["n_points"] > 100
@@ -306,7 +306,7 @@ def test_fit_staged_runs_on_real_physic_based_profile_when_available():
 def test_detect_knee_q_finds_transition_on_guinier_porod_curve():
     q = np.linspace(1e-3, 0.3, 900)
     model = build_preset("BG")
-    from saxs_core.composite_models import GuinierPorod
+    from saxs.core.composite_models import GuinierPorod
     gp = GuinierPorod()
     I = model.eval(q, {"bg_C": 50.0, "pl_B": 1e-9, "pl_p": 4.0}) + \
         gp.eval(q, G=4e8, Rg=600.0, p=4.0)
@@ -339,7 +339,7 @@ def test_detect_knee_q_fallback_finds_knee_when_flat_side_is_hidden():
     # drop from the transient's steepest point.
     q = np.linspace(1e-3, 0.3, 900)
     model = build_preset("BG")
-    from saxs_core.composite_models import Guinier
+    from saxs.core.composite_models import Guinier
     I = model.eval(q, {"bg_C": 1.0, "pl_B": 1e3, "pl_p": 2.0}) + \
         Guinier().eval(q, G=1e12, Rg=3000.0)  # q1 ~ 1/Rg = 3.3e-4, below q_lo
     q_knee = detect_knee_q(q, I)
@@ -359,7 +359,7 @@ def test_detect_knee_q_fallback_none_on_monotonically_steepening_decay():
     # flat tail, exactly the artifact this test needs to avoid to isolate
     # the "no genuine relaxation" case.
     q = np.linspace(1e-3, 0.3, 900)
-    from saxs_core.composite_models import Guinier
+    from saxs.core.composite_models import Guinier
     I = Guinier().eval(q, G=1e12, Rg=200.0) + 1e-20
     assert detect_knee_q(q, I) is None
 
@@ -464,7 +464,7 @@ def test_classify_morphology_matches_v4_ticket_acceptance_on_real_series(name, e
     path = os.path.join(real_dir, f"{name}__corr.dat")
     if not os.path.isfile(path):
         pytest.skip("real SAXS data folder not present on this machine")
-    from saxs_core.loader import load_curve
+    from saxs.core.loader import load_curve
     curve = load_curve(path)
     res = classify_morphology(curve.q, curve.intensity, sigma=curve.sigma)
     expected_classes, must_have_peak = expectation
@@ -627,7 +627,7 @@ def test_fit_staged_p0bi0_bg_c_never_collapses_on_real_profile():
     path = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based\P0Bi0__corr.dat"
     if not os.path.isfile(path):
         pytest.skip("real SAXS data folder not present on this machine")
-    from saxs_core.loader import load_curve
+    from saxs.core.loader import load_curve
     curve = load_curve(path)
     result = fit_staged(curve, sample_id="P0Bi0", multistart_n=4)
     assert result.params["bg_C"]["value"] > 1e-3  # never the diagnosed 1e-12/5e-18 collapse
@@ -640,7 +640,7 @@ def test_fit_staged_p2bi2_13_no_peak_regression():
     path = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based\P2Bi2-13__corr.dat"
     if not os.path.isfile(path):
         pytest.skip("real SAXS data folder not present on this machine")
-    from saxs_core.loader import load_curve
+    from saxs.core.loader import load_curve
     curve = load_curve(path)
     result = fit_staged(curve, sample_id="P2Bi2-13", multistart_n=4)
     assert result.morphology_cls == "S"
@@ -724,7 +724,7 @@ def test_fit_staged_p0bi0_chi2red_dramatically_improved_with_beaucage():
     path = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based\P0Bi0__corr.dat"
     if not os.path.isfile(path):
         pytest.skip("real SAXS data folder not present on this machine")
-    from saxs_core.loader import load_curve
+    from saxs.core.loader import load_curve
     curve = load_curve(path)
     result = fit_staged(curve, sample_id="P0Bi0", multistart_n=6)
     assert result.preset_chosen == "BG_BC"
@@ -738,7 +738,7 @@ def test_fit_staged_p5bi5_12_ts_accepted():
     path = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based\P5Bi5-12__corr.dat"
     if not os.path.isfile(path):
         pytest.skip("real SAXS data folder not present on this machine")
-    from saxs_core.loader import load_curve
+    from saxs.core.loader import load_curve
     curve = load_curve(path)
     result = fit_staged(curve, sample_id="P5Bi5-12", multistart_n=6)
     assert result.morphology_cls == "S+P"

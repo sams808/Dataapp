@@ -34,9 +34,9 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from saxs_core.composite_fit import PRESETS, CompositeModel, build_composite
-from saxs_core.composite_models import regime_label
-from saxs_core.curve import Curve
+from saxs.core.composite_fit import PRESETS, CompositeModel, build_composite
+from saxs.core.composite_models import regime_label
+from saxs.core.curve import Curve
 
 Windows = Dict[str, Tuple[float, float]]
 
@@ -2367,7 +2367,7 @@ def compute_ts_profile_likelihood_cis(
     strictly monotonic function of xi at fixed d), an unidentifiable
     upper xi means the TRUE fa is bounded by whatever fa would be at
     (d_best, xi_lower_ci) -- reported as `fa < that value`."""
-    from saxs_core.composite_models import ts_classic_from_physical
+    from saxs.core.composite_models import ts_classic_from_physical
     names = best_result.params
     if "ts_d" not in names or "ts_xi" not in names:
         return {}
