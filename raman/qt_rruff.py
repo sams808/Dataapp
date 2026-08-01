@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 from core.fitting_science import find_peak_candidates
 from core.qt_models import SpectrumLibrary
 from core.qt_widgets import PlotWidget
-from rruff_science import (
+from raman.rruff_science import (
     RRUFF_ATTRIBUTION_NOTE,
     RRUFF_CACHE_DIR,
     RRUFF_CITATION,
@@ -257,7 +257,7 @@ class RruffMatchWorkspace(QWidget):
         )
         if resp != QMessageBox.Yes:
             return
-        import rruff_science as rs
+        import raman.rruff_science as rs
         self._start_download(
             self.download_db_btn, "Downloading…",
             lambda: rs.download_and_build_rruff_cache(log=self._dl_queue.put),
@@ -278,7 +278,7 @@ class RruffMatchWorkspace(QWidget):
         )
         if resp != QMessageBox.Yes:
             return
-        import rruff_science as rs
+        import raman.rruff_science as rs
         self._start_download(
             self.download_amcsd_btn, "Downloading…",
             lambda: rs.download_and_build_amcsd_cache(log=self._dl_queue.put),

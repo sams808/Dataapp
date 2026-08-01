@@ -1,6 +1,6 @@
 """
-qt_simple_plot.py — Simple Plot + CIF Bragg overlay, ported from
-ui_simple_plot.py's SimplePlotWindow (M7, core slice).
+qt_raman.py (formerly qt_simple_plot.py) — Simple Plot + CIF Bragg overlay,
+ported from ui_simple_plot.py's SimplePlotWindow (M7, core slice).
 
 Reuses the shared, debounced PlotWidget (qt_widgets.py) — the CIF-overlay
 lag the user hit directly (see the M7 planning conversation) was caused by
@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
     QRadioButton, QScrollArea, QSplitter, QVBoxLayout, QWidget,
 )
 
-from cif_tools import bragg_peaks_from_cif_generic, list_cif_files_case_insensitive
+from raman.cif_tools import bragg_peaks_from_cif_generic, list_cif_files_case_insensitive
 from core.qt_models import SpectrumLibrary
 from core.qt_widgets import PlotWidget
 
@@ -52,7 +52,7 @@ class CifManagerDialog(QDialog):
     """Per-CIF visibility/label/color/pad controls — a modeless-feeling
     dialog whose edits redraw the parent's plot via the shared debounce."""
 
-    def __init__(self, workspace: "SimplePlotWorkspace"):
+    def __init__(self, workspace: "RamanWorkspace"):
         super().__init__(workspace)
         self.workspace = workspace
         self.setWindowTitle("CIF manager")
@@ -129,7 +129,7 @@ class CifManagerDialog(QDialog):
             self.list_layout.addWidget(wrapper)
 
 
-class SimplePlotWorkspace(QWidget):
+class RamanWorkspace(QWidget):
     def __init__(self, parent: Optional[QWidget] = None, library: Optional[SpectrumLibrary] = None):
         super().__init__(parent)
         self.library = library if library is not None else SpectrumLibrary()

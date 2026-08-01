@@ -11,7 +11,7 @@ import pytest
 
 from core.qt_models import Spectrum, SpectrumLibrary
 from core.qt_shell import NAV_ITEMS, PrismMainWindow, _load_spectrum_from_path
-from qt_simple_plot import SimplePlotWorkspace
+from raman.qt_raman import RamanWorkspace
 
 _CUBIC_CIF = """\
 data_test_cubic
@@ -39,14 +39,14 @@ def _library_with_raman(raman_example_path) -> SpectrumLibrary:
 
 
 def test_workspace_constructs_empty(qtbot):
-    widget = SimplePlotWorkspace()
+    widget = RamanWorkspace()
     qtbot.addWidget(widget)
     assert widget.file_list.count() == 0
 
 
 def test_set_spectra_populates_list_and_selection_renders(qtbot, raman_example_path):
     library = _library_with_raman(raman_example_path)
-    widget = SimplePlotWorkspace(library=library)
+    widget = RamanWorkspace(library=library)
     qtbot.addWidget(widget)
 
     widget.set_spectra([s.id for s in library.all()])
@@ -65,7 +65,7 @@ def test_stacked_mode_with_two_spectra_offsets_lines(qtbot, raman_example_path):
     library.add(s1)
     library.add(s2)
 
-    widget = SimplePlotWorkspace(library=library)
+    widget = RamanWorkspace(library=library)
     qtbot.addWidget(widget)
     widget.set_spectra([s1.id, s2.id])
     widget.file_list.selectAll()
@@ -79,14 +79,14 @@ def test_stacked_mode_with_two_spectra_offsets_lines(qtbot, raman_example_path):
 
 def test_cif_import_adds_series_and_draws_markers(qtbot, raman_example_path, cif_path):
     library = _library_with_raman(raman_example_path)
-    widget = SimplePlotWorkspace(library=library)
+    widget = RamanWorkspace(library=library)
     qtbot.addWidget(widget)
     widget.set_spectra([s.id for s in library.all()])
     widget.file_list.selectAll()
     qtbot.wait(200)
 
     peaks_before = len(widget.cif_series)
-    from cif_tools import bragg_peaks_from_cif_generic
+    from raman.cif_tools import bragg_peaks_from_cif_generic
     peaks = bragg_peaks_from_cif_generic(str(cif_path), two_theta_max=80.0, hkl_max=6)
     assert len(peaks) > 0
 
@@ -104,12 +104,12 @@ def test_cif_import_adds_series_and_draws_markers(qtbot, raman_example_path, cif
 
 def test_cif_manager_toggle_visible_triggers_debounced_redraw(qtbot, raman_example_path, cif_path):
     library = _library_with_raman(raman_example_path)
-    widget = SimplePlotWorkspace(library=library)
+    widget = RamanWorkspace(library=library)
     qtbot.addWidget(widget)
     widget.set_spectra([s.id for s in library.all()])
     widget.file_list.selectAll()
 
-    from cif_tools import bragg_peaks_from_cif_generic
+    from raman.cif_tools import bragg_peaks_from_cif_generic
     peaks = bragg_peaks_from_cif_generic(str(cif_path), two_theta_max=80.0, hkl_max=6)
     serie = {"path": str(cif_path), "label": "cubic_test.cif", "plot_label": "",
              "peaks": peaks, "visible": False, "color": "crimson", "pad": 0.03}
@@ -127,7 +127,7 @@ def test_cif_manager_toggle_visible_triggers_debounced_redraw(qtbot, raman_examp
 
 def test_color_scheme_change_does_not_crash(qtbot, raman_example_path):
     library = _library_with_raman(raman_example_path)
-    widget = SimplePlotWorkspace(library=library)
+    widget = RamanWorkspace(library=library)
     qtbot.addWidget(widget)
     widget.set_spectra([s.id for s in library.all()])
     widget.file_list.selectAll()
@@ -147,7 +147,7 @@ def test_difference_mode_plots_a_minus_b(qtbot):
     library.add(a)
     library.add(b)
 
-    widget = SimplePlotWorkspace(library=library)
+    widget = RamanWorkspace(library=library)
     qtbot.addWidget(widget)
     widget.set_spectra([a.id, b.id])
     widget.file_list.selectAll()
@@ -166,7 +166,7 @@ def test_difference_mode_plots_a_minus_b(qtbot):
 
 def test_difference_mode_with_wrong_selection_count_falls_back(qtbot, raman_example_path):
     library = _library_with_raman(raman_example_path)
-    widget = SimplePlotWorkspace(library=library)
+    widget = RamanWorkspace(library=library)
     qtbot.addWidget(widget)
     widget.set_spectra([s.id for s in library.all()])
     widget.file_list.selectAll()  # only ONE spectrum
@@ -179,7 +179,7 @@ def test_difference_mode_with_wrong_selection_count_falls_back(qtbot, raman_exam
 
 def test_click_to_annotate_adds_and_clears_annotations(qtbot, raman_example_path):
     library = _library_with_raman(raman_example_path)
-    widget = SimplePlotWorkspace(library=library)
+    widget = RamanWorkspace(library=library)
     qtbot.addWidget(widget)
     widget.set_spectra([s.id for s in library.all()])
     widget.file_list.selectAll()
@@ -216,7 +216,7 @@ def test_click_to_annotate_adds_and_clears_annotations(qtbot, raman_example_path
 
 def test_annotate_click_ignored_when_toggle_off(qtbot, raman_example_path):
     library = _library_with_raman(raman_example_path)
-    widget = SimplePlotWorkspace(library=library)
+    widget = RamanWorkspace(library=library)
     qtbot.addWidget(widget)
     widget.set_spectra([s.id for s in library.all()])
     widget.file_list.selectAll()
@@ -238,12 +238,12 @@ def test_rapid_axis_typing_coalesces_into_one_render(qtbot, raman_example_path, 
     architecture: a burst of axis-title keystrokes must produce ONE
     debounced render, not one per keystroke."""
     library = _library_with_raman(raman_example_path)
-    widget = SimplePlotWorkspace(library=library)
+    widget = RamanWorkspace(library=library)
     qtbot.addWidget(widget)
     widget.set_spectra([s.id for s in library.all()])
     widget.file_list.selectAll()
 
-    from cif_tools import bragg_peaks_from_cif_generic
+    from raman.cif_tools import bragg_peaks_from_cif_generic
     peaks = bragg_peaks_from_cif_generic(str(cif_path), two_theta_max=80.0, hkl_max=6)
     for i in range(5):  # several CIF overlays, like the original report
         widget.cif_series.append({

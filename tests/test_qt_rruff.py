@@ -15,7 +15,7 @@ import numpy as np
 import rampy as rp
 
 from core.qt_models import Spectrum, SpectrumLibrary
-from qt_rruff import RruffMatchWorkspace
+from raman.qt_rruff import RruffMatchWorkspace
 from core.qt_shell import PrismMainWindow
 
 
@@ -118,7 +118,7 @@ def test_download_database_button_flow(qtbot, tmp_path, monkeypatch):
         _write_fake_cache(tmp_path, tmp_path / "raw")  # the mock "builds" the cache
         return 3
 
-    import rruff_science as rs
+    import raman.rruff_science as rs
     monkeypatch.setattr(rs, "download_and_build_rruff_cache", fake_download)
 
     widget.download_database()  # QMessageBox.question -> Yes via conftest's autouse fixture
@@ -138,7 +138,7 @@ def test_download_database_declined_does_not_download(qtbot, tmp_path, monkeypat
     qtbot.addWidget(widget)
 
     calls = []
-    import rruff_science as rs
+    import raman.rruff_science as rs
     monkeypatch.setattr(rs, "download_and_build_rruff_cache", lambda **k: calls.append(1))
     widget.download_database()
     assert calls == []
@@ -148,7 +148,7 @@ def test_download_database_error_reenables_buttons(qtbot, tmp_path, monkeypatch)
     widget = RruffMatchWorkspace(cache_dir=str(tmp_path))
     qtbot.addWidget(widget)
 
-    import rruff_science as rs
+    import raman.rruff_science as rs
     monkeypatch.setattr(rs, "download_and_build_rruff_cache",
                         lambda **k: (_ for _ in ()).throw(RuntimeError("no internet")))
     widget.download_database()  # QMessageBox.critical is neutralized by conftest too
@@ -161,7 +161,7 @@ def test_download_amcsd_button_flow(qtbot, tmp_path, monkeypatch):
     widget = RruffMatchWorkspace(cache_dir=str(tmp_path))
     qtbot.addWidget(widget)
 
-    import rruff_science as rs
+    import raman.rruff_science as rs
     monkeypatch.setattr(rs, "download_and_build_amcsd_cache", lambda **k: 7)
     widget.download_amcsd()
 
@@ -409,7 +409,7 @@ def test_send_candidate_cifs_hands_structures_to_callback(qtbot, tmp_path):
     shell-provided callback."""
     import zipfile
 
-    import rruff_science as rs
+    import raman.rruff_science as rs
 
     amcsd_zip = tmp_path / "cif.zip"
     with zipfile.ZipFile(amcsd_zip, "w") as zf:

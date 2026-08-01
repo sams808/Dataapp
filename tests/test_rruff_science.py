@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-import rruff_science as rs
+import raman.rruff_science as rs
 
 
 # --------------------------------------------------------------------------
@@ -458,7 +458,7 @@ def test_ingested_amcsd_cif_feeds_bragg_generation(tmp_path):
     """End of the handoff chain: an ingested AMCSD CIF must parse through
     cif_tools and yield Bragg peaks."""
     import zipfile as _zip
-    from cif_tools import bragg_peaks_from_cif_generic
+    from raman.cif_tools import bragg_peaks_from_cif_generic
 
     zip_path = tmp_path / "cif.zip"
     with _zip.ZipFile(zip_path, "w") as zf:
@@ -474,7 +474,7 @@ def test_ingested_amcsd_cif_feeds_bragg_generation(tmp_path):
 
 
 def test_filter_rruff_index_by_each_criterion():
-    from rruff_science import filter_rruff_index
+    from raman.rruff_science import filter_rruff_index
     index = [
         {"mineral": "A", "wavelength_nm": 532.0, "orientation_deg": "90", "scan_type": "Raman", "category": "excellent_oriented"},
         {"mineral": "B", "wavelength_nm": 532.6, "orientation_deg": None, "scan_type": "Raman", "category": "fair_unoriented"},
@@ -499,7 +499,7 @@ def test_filter_rruff_index_by_each_criterion():
 def test_pack_and_unpack_rruff_database_round_trip(tmp_path):
     """User request: one shareable file for the whole RRUFF cache."""
     import json
-    from rruff_science import pack_rruff_database, unpack_rruff_database
+    from raman.rruff_science import pack_rruff_database, unpack_rruff_database
     src_cache = tmp_path / "cache_a"
     raw = src_cache / "raw"
     raw.mkdir(parents=True)

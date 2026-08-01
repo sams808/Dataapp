@@ -60,7 +60,7 @@ def _cli_build_rruff_cache(argv, log=None) -> int:
     """`--build-rruff-cache [--categories a b c]`. Returns a process exit
     code (0 success, 1 failure) — never raises, so it's safe to call
     directly from main()."""
-    import rruff_science as rs
+    import raman.rruff_science as rs
 
     log = log or _cli_log(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "rruff_download.log"))
     categories = None
@@ -79,7 +79,7 @@ def _cli_build_rruff_cache(argv, log=None) -> int:
 def _cli_build_amcsd_cache(argv, log=None) -> int:
     """`--build-amcsd-cache` — the AMCSD counterpart, for the Raman ID
     workspace's "Overlay candidate's XRD (CIF)" button."""
-    import rruff_science as rs
+    import raman.rruff_science as rs
 
     log = log or _cli_log(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "amcsd_download.log"))
     try:

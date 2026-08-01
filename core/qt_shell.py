@@ -31,7 +31,7 @@ from qt_dta import DtaWorkspace
 from core.qt_models import Spectrum, SpectrumLibrary
 from processing.qt_multi_fit import MultiFitWorkspace
 from core.qt_settings_store import PerItemSettingsStore
-from qt_simple_plot import SimplePlotWorkspace
+from raman.qt_raman import RamanWorkspace
 from processing.qt_single_fit import SingleFitWorkspace
 from processing.qt_baseline import BaselineWorkspace
 from processing.qt_calc import CalcWorkspace
@@ -40,7 +40,7 @@ from qt_glass import GlassWorkspace
 from qt_saxs import SaxsWorkspace
 from qt_xrd import XrdIdWorkspace
 from qt_htxrd import HtxrdWorkspace
-from qt_rruff import RruffMatchWorkspace
+from raman.qt_rruff import RruffMatchWorkspace
 from core.qt_widgets import PlotWidget
 from qt_xas import XasWorkspace
 
@@ -620,7 +620,7 @@ class PrismMainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.library_page = LibraryPage(self.library)
         self.stack.addWidget(self.library_page)
-        self.raman_page = SimplePlotWorkspace(library=self.library)
+        self.raman_page = RamanWorkspace(library=self.library)
         self.stack.addWidget(self.raman_page)
         self.xas_page = XasWorkspace()
         self.stack.addWidget(self.xas_page)

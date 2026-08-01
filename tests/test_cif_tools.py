@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-import cif_tools as ct
+import raman.cif_tools as ct
 
 
 TRICLINIC_CIF = """\
