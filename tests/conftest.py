@@ -133,6 +133,19 @@ def _hermetic_xrd_registry(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _hermetic_cif_cache(tmp_path, monkeypatch):
+    """cif_tools.bragg_peaks_from_cif_generic() caches to the real per-user
+    ~/.raman_cache/cif by default (use_cache=True) — point _cache_dir() at a
+    temp location so tests never read/write the user's real cache, without
+    every call site having to remember use_cache=False."""
+    import raman.cif_tools as cif_tools
+    cache_dir = tmp_path / "cif_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(cif_tools, "_cache_dir", lambda: str(cache_dir))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _hermetic_qsettings(monkeypatch):
     """Tests must not read or write the real per-user QSettings (Windows
     registry): the shell restores window geometry and the last-used nav row
