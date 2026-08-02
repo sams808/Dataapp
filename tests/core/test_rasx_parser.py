@@ -11,14 +11,12 @@ Rigaku HTXRD series (P5Bi8-12, room temp to 900 C), covering 19-23 C.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 
 import core.io_universal as iou
+from conftest import EXAMPLES_DIR
 
-EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "EXAMPLES"
 RASX_PATH = EXAMPLES_DIR / "HTXRD_example.rasx"
 
 

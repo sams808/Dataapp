@@ -20,10 +20,9 @@ pytest.importorskip("fabio")
 import fabio.edfimage
 
 from saxs.core import edf_reduction as edf
+from conftest import EXAMPLES_DIR
 
-
-EXAMPLES_DIR = os.path.join(os.path.dirname(__file__), "..", "EXAMPLES")
-AGBEH_FIXTURE = os.path.join(EXAMPLES_DIR, "AgBeh_calibration_example.edf.gz")
+AGBEH_FIXTURE = os.path.join(str(EXAMPLES_DIR), "AgBeh_calibration_example.edf.gz")
 
 DIST = 0.9
 WAVELENGTH = 1.54189e-10

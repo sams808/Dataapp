@@ -1,7 +1,7 @@
-lmfit
-matplotlib
-numpy
-pandas
-rampy
-scikit-learn
-scipy
+lmfit==1.3.2
+matplotlib==3.10.0
+numpy==1.26.4
+pandas==2.2.3
+rampy==0.5.3
+scikit-learn==1.6.1
+scipy==1.15.1

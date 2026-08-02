@@ -1,3 +1,4 @@
 -r requirements.txt
-pytest
-pytest-qt
+-r requirements-qt.txt
+pytest==9.1.1
+pytest-qt==4.5.0

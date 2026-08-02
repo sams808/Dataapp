@@ -41,10 +41,12 @@ operations, per-module guides in the Help menu, and keyboard shortcuts
 ```bash
 python -m venv .venv
 # Windows: .venv\Scripts\activate     Linux/macOS: source .venv/bin/activate
-pip install -r requirements.txt      # core science stack
-pip install -r requirements-qt.txt   # PySide6, for the Qt app
-pip install -r requirements-xas.txt  # xraylarch, optional — XAS workspace
-pip install -r requirements-dev.txt  # pytest + pytest-qt, for running the tests
+pip install -r requirements.txt          # core science stack
+pip install -r requirements-qt.txt       # PySide6, for the Qt app
+pip install -r requirements-xas.txt      # xraylarch, optional — XAS workspace
+pip install -r requirements-glass.txt    # glasspy, optional — GlassNet predictions (Glass workspace)
+pip install -r requirements-saxs-edf.txt # pyFAI + fabio, optional — raw EDF frame ingestion (SAXS workspace)
+pip install -r requirements-dev.txt      # pytest + pytest-qt, for running the tests
 ```
 
 ## Running
