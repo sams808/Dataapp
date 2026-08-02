@@ -526,6 +526,55 @@ def larch_exafs_pipeline(energy: np.ndarray, mu: np.ndarray, *, e0_method: str, 
 
 
 # =====================================================================
+# Analysis (Athena-inspired): combine/difference/linear-combination-fit.
+# Pulled out of qt_xas.py's Analysis tab (which handled both the math and
+# the Qt plotting inline) so the math is unit-testable independent of Qt,
+# matching how normalize_selected/exafs_selected already delegate to
+# larch_normalize/larch_exafs_pipeline above.
+# =====================================================================
+
+def combine_spectra(ref_energy: np.ndarray, ref_y: np.ndarray,
+                    others: List[Tuple[np.ndarray, np.ndarray]], op: str) -> np.ndarray:
+    """Average (merge of repeat scans) or sum (e.g. adding up detector
+    channels / partial acquisitions) of `ref` plus `others`, each of the
+    latter interpolated onto `ref_energy` first. `op` is "sum" or
+    "average"."""
+    stacked = [np.asarray(ref_y, float)]
+    for energy, y in others:
+        stacked.append(_interp_to_grid(energy, y, ref_energy))
+    matrix = np.vstack(stacked)
+    return np.sum(matrix, axis=0) if op == "sum" else np.mean(matrix, axis=0)
+
+
+def difference_spectra(a_energy: np.ndarray, a_y: np.ndarray, b_energy: np.ndarray, b_y: np.ndarray
+                       ) -> Tuple[np.ndarray, np.ndarray]:
+    """A − B on A's energy grid; B is interpolated onto it first. Returns
+    (b_interp, diff) — b_interp is also returned since callers plot it
+    alongside the difference."""
+    b_interp = _interp_to_grid(b_energy, b_y, a_energy)
+    diff = np.asarray(a_y, float) - b_interp
+    return b_interp, diff
+
+
+def linear_combination_fit(target_energy: np.ndarray, target_y: np.ndarray,
+                           refs: List[Tuple[np.ndarray, np.ndarray]]) -> Dict[str, Any]:
+    """Athena-style linear combination fitting: fit `target` as a
+    non-negative weighted sum of `refs` (each interpolated onto
+    `target_energy` first), via NNLS. Returns weights, the fitted curve,
+    and R²."""
+    from scipy.optimize import nnls
+
+    target_y = np.asarray(target_y, float)
+    A = np.column_stack([_interp_to_grid(e, y, target_energy) for e, y in refs])
+    weights, residual_norm = nnls(A, target_y)
+    fit_y = A @ weights
+    ss_res = float(np.sum((target_y - fit_y) ** 2))
+    ss_tot = float(np.sum((target_y - np.mean(target_y)) ** 2))
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-30 else float("nan")
+    return {"weights": weights, "fit_y": fit_y, "r2": r2, "residual_norm": float(residual_norm)}
+
+
+# =====================================================================
 # Data models — session level (SpectrumStore) and single-dataset
 # (XASData/Bundle, the layer main.py's import buttons talk to)
 # =====================================================================

@@ -16,7 +16,13 @@ from PySide6.QtWidgets import (
 )
 
 from core.qt_widgets import PlotWidget
-from xas.xas_science import Operation, Spectrum, _interp_to_grid
+from xas.xas_science import (
+    Operation,
+    Spectrum,
+    combine_spectra,
+    difference_spectra,
+    linear_combination_fit,
+)
 from ._qt_xas_shared import COLORS
 
 
@@ -90,10 +96,7 @@ class AnalysisTabMixin:
             QMessageBox.warning(self, "Combine", f"Select at least 2 spectra to {op}.")
             return
         ref = specs[0]
-        stacked = [ref.y]
-        for sp in specs[1:]:
-            stacked.append(_interp_to_grid(sp.energy, sp.y, ref.energy))
-        combined = np.sum(np.vstack(stacked), axis=0) if op == "sum" else np.mean(np.vstack(stacked), axis=0)
+        combined = combine_spectra(ref.energy, ref.y, [(sp.energy, sp.y) for sp in specs[1:]], op)
 
         suffix = "sum" if op == "sum" else "avg"
         sp_new = ref.copy(new_name=f"{ref.name}_{suffix}{len(specs)}", new_kind=ref.kind)
@@ -120,8 +123,7 @@ class AnalysisTabMixin:
             QMessageBox.warning(self, "Difference", "Select exactly 2 spectra (A then B; result is A − B).")
             return
         a, b = specs
-        b_interp = _interp_to_grid(b.energy, b.y, a.energy)
-        diff_y = a.y - b_interp
+        b_interp, diff_y = difference_spectra(a.energy, a.y, b.energy, b.y)
 
         sp_diff = a.copy(new_name=f"{a.name}_minus_{b.name}", new_kind=f"diff({a.kind})")
         sp_diff.y = diff_y
@@ -145,8 +147,6 @@ class AnalysisTabMixin:
         """Athena-style linear combination fitting: fit the LAST selected
         spectrum (target) as a non-negative weighted sum of the other
         selected spectra (references), via NNLS."""
-        from scipy.optimize import nnls
-
         specs = self._analysis_selected_spectra()
         if len(specs) < 3:
             QMessageBox.warning(self, "Linear combination fit", "Select 2+ references and 1 target (3+ total; target = last selected).")
@@ -154,12 +154,8 @@ class AnalysisTabMixin:
         target = specs[-1]
         refs = specs[:-1]
 
-        A = np.column_stack([_interp_to_grid(r.energy, r.y, target.energy) for r in refs])
-        weights, residual_norm = nnls(A, target.y)
-        fit_y = A @ weights
-        ss_res = float(np.sum((target.y - fit_y) ** 2))
-        ss_tot = float(np.sum((target.y - np.mean(target.y)) ** 2))
-        r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-30 else float("nan")
+        out = linear_combination_fit(target.energy, target.y, [(r.energy, r.y) for r in refs])
+        weights, fit_y, r2 = out["weights"], out["fit_y"], out["r2"]
 
         lines = [f"Target: {target.name}", f"R² = {r2:.5f}", ""]
         for r, w_ in zip(refs, weights):

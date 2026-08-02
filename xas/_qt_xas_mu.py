@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 
 from core.qt_widgets import PlotWidget, to_float as _to_float
 from xas.xas_science import Operation, Spectrum, build_mu, deglitch_mu
-from ._qt_xas_shared import COLORS, _to_int
+from ._qt_xas_shared import COLORS, _to_int, for_each_selected_spectrum
 
 
 class MuTabMixin:
@@ -127,16 +127,8 @@ class MuTabMixin:
             QMessageBox.warning(self, "μ builder", "Select at least one It spectrum.")
             return
 
-        last = None
-        for item in it_items:
-            it = self.store.find_by_name(item.text())
-            if it is None:
-                continue
-            try:
-                mu = self._build_mu(i0, it)
-            except Exception as exc:
-                QMessageBox.critical(self, "μ builder error", str(exc))
-                continue
+        def _process(it):
+            mu = self._build_mu(i0, it)
             sp_mu = it.copy(new_name=f"{it.name}_mu", new_kind="mu")
             sp_mu.energy = np.asarray(i0.energy, float)
             sp_mu.y = np.asarray(mu, float)
@@ -145,8 +137,9 @@ class MuTabMixin:
             enabled, z, window = self._mu_deglitch_params()
             sp_mu.history.append(Operation("mu_builder", {"I0": i0.name, "It": it.name, "log": self.mu_log_combo.currentText(), "deglitch": enabled, "deglitch_z": z, "deglitch_window": window}))
             self.store.add(sp_mu)
-            last = sp_mu
+            return sp_mu
 
+        last = for_each_selected_spectrum(self, self.store, it_items, _process, "μ builder error")
         self._refresh_all()
         if last is not None:
             self._set_status(f"Computed μ for {len(it_items)} It spectrum/spectra.")

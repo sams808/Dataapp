@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 
 from core.qt_widgets import PlotWidget, to_float as _to_float
 from xas.xas_science import Operation, larch_exafs_pipeline, larch_normalize
-from ._qt_xas_shared import _to_int
+from ._qt_xas_shared import _to_int, for_each_selected_spectrum
 
 
 class NormTabMixin:
@@ -129,16 +129,8 @@ class NormTabMixin:
             return
         e0_method, e0_manual, pre1, pre2, norm1, norm2, nnorm, smooth_for_e0 = self._norm_params()
 
-        last = None
-        for item in items:
-            sp = self.store.find_by_name(item.text())
-            if sp is None:
-                continue
-            try:
-                out = larch_normalize(sp.energy, sp.y, e0_method=e0_method, e0_manual=e0_manual, pre1=pre1, pre2=pre2, norm1=norm1, norm2=norm2, nnorm=nnorm, smooth_for_e0=smooth_for_e0)
-            except Exception as exc:
-                QMessageBox.critical(self, "Normalization error", str(exc))
-                continue
+        def _process(sp):
+            out = larch_normalize(sp.energy, sp.y, e0_method=e0_method, e0_manual=e0_manual, pre1=pre1, pre2=pre2, norm1=norm1, norm2=norm2, nnorm=nnorm, smooth_for_e0=smooth_for_e0)
             sp_norm = sp.copy(new_name=f"{sp.name}_norm", new_kind="norm")
             sp_norm.y = out["norm"]; sp_norm.e0 = out["e0"]
             sp_norm.history.append(Operation("normalize", {"e0_method": e0_method, "e0": out["e0"]}))
@@ -146,8 +138,9 @@ class NormTabMixin:
             sp_flat.y = out["flat"]; sp_flat.e0 = out["e0"]
             sp_flat.history.append(Operation("normalize_flat", {"e0": out["e0"]}))
             self.store.add(sp_norm); self.store.add(sp_flat)
-            last = (sp, out)
+            return (sp, out)
 
+        last = for_each_selected_spectrum(self, self.store, items, _process, "Normalization error")
         self._refresh_all()
         if last is not None:
             sp, out = last
@@ -179,20 +172,12 @@ class NormTabMixin:
         window = self.exafs_window_combo.currentText()
         rmax_out = _to_float(self.exafs_rmax_edit.text(), 10.0)
 
-        last = None
-        for item in items:
-            sp = self.store.find_by_name(item.text())
-            if sp is None:
-                continue
-            try:
-                out = larch_exafs_pipeline(
-                    sp.energy, sp.y, e0_method=e0_method, e0_manual=e0_manual, pre1=pre1, pre2=pre2,
-                    norm1=norm1, norm2=norm2, nnorm=nnorm, rbkg=rbkg, kmin=kmin, kmax=kmax, dk=dk,
-                    kweight=kweight, window=window, rmax_out=rmax_out, smooth_for_e0=smooth_for_e0,
-                )
-            except Exception as exc:
-                QMessageBox.critical(self, "EXAFS/FT error", str(exc))
-                continue
+        def _process(sp):
+            out = larch_exafs_pipeline(
+                sp.energy, sp.y, e0_method=e0_method, e0_manual=e0_manual, pre1=pre1, pre2=pre2,
+                norm1=norm1, norm2=norm2, nnorm=nnorm, rbkg=rbkg, kmin=kmin, kmax=kmax, dk=dk,
+                kweight=kweight, window=window, rmax_out=rmax_out, smooth_for_e0=smooth_for_e0,
+            )
 
             sp_norm = sp.copy(new_name=f"{sp.name}_norm", new_kind="norm"); sp_norm.y = out["norm"]; sp_norm.e0 = out["e0"]
             sp_norm.history.append(Operation("normalize", {"e0_method": e0_method}))
@@ -212,8 +197,9 @@ class NormTabMixin:
             sp_ft = sp.copy(new_name=f"{sp.name}_FTmag", new_kind="FT|chi|"); sp_ft.energy = out["r"]; sp_ft.y = out["chir_mag"]; sp_ft.e0 = out["e0"]
             sp_ft.history.append(Operation("xftf", {"kmin": kmin, "kmax": kmax, "dk": dk, "kweight": kweight, "window": window, "rmax_out": rmax_out}))
             self.store.add(sp_ft)
-            last = (sp, out, kweight)
+            return (sp, out, kweight)
 
+        last = for_each_selected_spectrum(self, self.store, items, _process, "EXAFS/FT error")
         self._refresh_all()
         if last is not None:
             sp, out, kweight = last
