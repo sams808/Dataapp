@@ -32,6 +32,21 @@ def _find_archive_dir() -> Path:
 ARCHIVE_DIR = _find_archive_dir()
 
 
+def _find_saxs_physic_based_dir() -> Path:
+    """The real, reduced PBi glass-series SAXS profiles (physic_based/) are
+    not part of the repo. PRISM_SAXS_PHYSIC_BASED_DIR overrides the default
+    location for other machines/CI; SAXS-real-data tests skip when neither
+    is present."""
+    import os
+    override = os.environ.get("PRISM_SAXS_PHYSIC_BASED_DIR")
+    if override:
+        return Path(override)
+    return PRISM_ROOT.parent.parent.parent / "SAXS" / "PBi-sorted" / "physic_based"
+
+
+SAXS_PHYSIC_BASED_DIR = _find_saxs_physic_based_dir()
+
+
 @pytest.fixture(scope="session")
 def examples_dir() -> Path:
     return EXAMPLES_DIR

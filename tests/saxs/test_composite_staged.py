@@ -20,6 +20,7 @@ from saxs.core.composite_staged import (
     ts_window_local_delta_bic,
 )
 from saxs.core.curve import Curve
+from conftest import SAXS_PHYSIC_BASED_DIR
 
 
 def _ts_curve(name="synthetic_peaked", d=1200.0, xi=3000.0, S=5e6, seed=0, noise=True):
@@ -278,12 +279,11 @@ def test_compute_diagnostics_flags_ts_q_max_outside_window():
 
 
 def test_fit_staged_runs_on_real_physic_based_profile_when_available():
-    import os
-    real_path = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based\P5Bi8-12__corr.dat"
-    if not os.path.isfile(real_path):
+    real_path = SAXS_PHYSIC_BASED_DIR / "P5Bi8-12__corr.dat"
+    if not real_path.is_file():
         pytest.skip("real SAXS data folder not present on this machine")
     from saxs.core.loader import load_curve
-    curve = load_curve(real_path)
+    curve = load_curve(str(real_path))
     result = fit_staged(curve, multistart_n=2)
     assert result.gof["n_points"] > 100
     if not result.no_peak:
@@ -459,13 +459,11 @@ _MORPHOLOGY_ACCEPTANCE = {
 
 @pytest.mark.parametrize("name,expectation", list(_MORPHOLOGY_ACCEPTANCE.items()))
 def test_classify_morphology_matches_v4_ticket_acceptance_on_real_series(name, expectation):
-    import os
-    real_dir = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based"
-    path = os.path.join(real_dir, f"{name}__corr.dat")
-    if not os.path.isfile(path):
+    path = SAXS_PHYSIC_BASED_DIR / f"{name}__corr.dat"
+    if not path.is_file():
         pytest.skip("real SAXS data folder not present on this machine")
     from saxs.core.loader import load_curve
-    curve = load_curve(path)
+    curve = load_curve(str(path))
     res = classify_morphology(curve.q, curve.intensity, sigma=curve.sigma)
     expected_classes, must_have_peak = expectation
     assert res.cls in expected_classes, f"{name}: expected class in {expected_classes}, got {res.cls}"
@@ -623,12 +621,11 @@ def test_ts_window_local_delta_bic_none_when_window_too_small():
 # ---------------------------------------------------------------------------
 
 def test_fit_staged_p0bi0_bg_c_never_collapses_on_real_profile():
-    import os
-    path = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based\P0Bi0__corr.dat"
-    if not os.path.isfile(path):
+    path = SAXS_PHYSIC_BASED_DIR / "P0Bi0__corr.dat"
+    if not path.is_file():
         pytest.skip("real SAXS data folder not present on this machine")
     from saxs.core.loader import load_curve
-    curve = load_curve(path)
+    curve = load_curve(str(path))
     result = fit_staged(curve, sample_id="P0Bi0", multistart_n=4)
     assert result.params["bg_C"]["value"] > 1e-3  # never the diagnosed 1e-12/5e-18 collapse
     assert result.morphology_cls in ("S", "F")
@@ -636,12 +633,11 @@ def test_fit_staged_p0bi0_bg_c_never_collapses_on_real_profile():
 
 
 def test_fit_staged_p2bi2_13_no_peak_regression():
-    import os
-    path = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based\P2Bi2-13__corr.dat"
-    if not os.path.isfile(path):
+    path = SAXS_PHYSIC_BASED_DIR / "P2Bi2-13__corr.dat"
+    if not path.is_file():
         pytest.skip("real SAXS data folder not present on this machine")
     from saxs.core.loader import load_curve
-    curve = load_curve(path)
+    curve = load_curve(str(path))
     result = fit_staged(curve, sample_id="P2Bi2-13", multistart_n=4)
     assert result.morphology_cls == "S"
     assert result.q_peak is None
@@ -720,12 +716,11 @@ def test_fit_staged_p0bi0_chi2red_dramatically_improved_with_beaucage():
     best available choice (BG_GP) left P0Bi0 at chi2red~9.7; after wiring
     Beaucage in as a fairly-staged competing candidate, it drops below 2 --
     captured directly from a real run, not an idealized target."""
-    import os
-    path = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based\P0Bi0__corr.dat"
-    if not os.path.isfile(path):
+    path = SAXS_PHYSIC_BASED_DIR / "P0Bi0__corr.dat"
+    if not path.is_file():
         pytest.skip("real SAXS data folder not present on this machine")
     from saxs.core.loader import load_curve
-    curve = load_curve(path)
+    curve = load_curve(str(path))
     result = fit_staged(curve, sample_id="P0Bi0", multistart_n=6)
     assert result.preset_chosen == "BG_BC"
     assert result.gof["chi2red"] < 2.0
@@ -734,12 +729,11 @@ def test_fit_staged_p0bi0_chi2red_dramatically_improved_with_beaucage():
 
 
 def test_fit_staged_p5bi5_12_ts_accepted():
-    import os
-    path = r"C:\Users\samso\Desktop\WSU_work\SAXS\PBi-sorted\physic_based\P5Bi5-12__corr.dat"
-    if not os.path.isfile(path):
+    path = SAXS_PHYSIC_BASED_DIR / "P5Bi5-12__corr.dat"
+    if not path.is_file():
         pytest.skip("real SAXS data folder not present on this machine")
     from saxs.core.loader import load_curve
-    curve = load_curve(path)
+    curve = load_curve(str(path))
     result = fit_staged(curve, sample_id="P5Bi5-12", multistart_n=6)
     assert result.morphology_cls == "S+P"
     assert result.q_peak is not None
