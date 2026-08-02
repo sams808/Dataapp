@@ -49,6 +49,11 @@ pip install -r requirements-saxs-edf.txt # pyFAI + fabio, optional — raw EDF f
 pip install -r requirements-dev.txt      # pytest + pytest-qt, for running the tests
 ```
 
+**Windows shortcut:** `scripts\install.bat` does the equivalent (installs onto
+the system `py -3.11`, no venv) and drops a `PRISM.bat` shortcut on your
+Desktop that launches this checkout directly. `scripts\update.bat` pulls the
+latest code and refreshes dependencies later.
+
 ## Running
 
 ```bash
