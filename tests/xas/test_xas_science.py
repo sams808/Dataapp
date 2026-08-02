@@ -54,6 +54,17 @@ def test_savgol_filter_smooths_noisy_signal_toward_truth():
     assert np.abs(smoothed - truth).mean() < np.abs(noisy - truth).mean()
 
 
+def test_savgol_filter_oversized_window_raises():
+    """Found via a real EasyXAFS scan (292 points): np.pad's "reflect" mode
+    silently handles a pad width larger than the array via repeated
+    reflection instead of raising, so a window this large used to run
+    "successfully" while silently producing a heavily-distorted result
+    (shifted a found e0 by 44 eV with zero indication anything was wrong).
+    Must raise instead."""
+    with pytest.raises(ValueError, match="must be smaller than the data length"):
+        xs.savgol_filter(np.sin(np.linspace(0, 10, 292)), window=99999, poly=3)
+
+
 def test_rolling_median_removes_isolated_spike():
     y = np.ones(50)
     y[25] = 100.0
@@ -230,6 +241,28 @@ def test_larch_normalize_produces_sane_norm_and_e0():
 
 
 @requires_larch
+def test_larch_normalize_e0_smoothing_failed_flag():
+    """Previously silent: a broken smooth_for_e0 request fell back to the
+    unsmoothed mu for e0-finding with zero indication to the caller.
+    Verified against a real EasyXAFS scan during the Bi L3 processing
+    review -- surfaced as this flag instead so the UI can tell the user
+    their smoothing request didn't actually apply."""
+    energy, mu = _synthetic_mu()
+    out_bad = xs.larch_normalize(
+        energy, mu, e0_method="larch", e0_manual=None, pre1=-150, pre2=-50, norm1=30, norm2=150, nnorm=1,
+        smooth_for_e0=("savitzky-golay", {"window": 99999, "poly": 3}),
+    )
+    assert out_bad["e0_smoothing_failed"] is not None
+    assert "window" in out_bad["e0_smoothing_failed"].lower()
+
+    out_ok = xs.larch_normalize(
+        energy, mu, e0_method="larch", e0_manual=None, pre1=-150, pre2=-50, norm1=30, norm2=150, nnorm=1,
+        smooth_for_e0=("savitzky-golay", {"window": 11, "poly": 3}),
+    )
+    assert out_ok["e0_smoothing_failed"] is None
+
+
+@requires_larch
 def test_larch_exafs_pipeline_produces_k_chi_and_ft():
     energy, mu = _synthetic_mu()
     out = xs.larch_exafs_pipeline(
@@ -240,6 +273,18 @@ def test_larch_exafs_pipeline_produces_k_chi_and_ft():
     assert out["chi"].shape == out["k"].shape
     assert out["r"].size > 0
     assert out["chir_mag"].shape == out["r"].shape
+    assert out["e0_smoothing_failed"] is None
+
+
+@requires_larch
+def test_larch_exafs_pipeline_e0_smoothing_failed_flag():
+    energy, mu = _synthetic_mu()
+    out = xs.larch_exafs_pipeline(
+        energy, mu, e0_method="larch", e0_manual=None, pre1=-150, pre2=-50, norm1=30, norm2=150, nnorm=1,
+        rbkg=1.0, kmin=0.0, kmax=10.0, dk=0.1, kweight=2, window="hanning", rmax_out=8.0,
+        smooth_for_e0=("savitzky-golay", {"window": 99999, "poly": 3}),
+    )
+    assert out["e0_smoothing_failed"] is not None
 
 
 # --------------------------------------------------------------------------

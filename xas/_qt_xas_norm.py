@@ -157,6 +157,8 @@ class NormTabMixin:
             ax.legend(fontsize=8); ax.grid(alpha=0.25)
             self.norm_plot.figure.tight_layout()
             self.norm_plot.canvas.draw_idle()
+            if out.get("e0_smoothing_failed"):
+                self._set_status(f"Normalized (E0 found from UNSMOOTHED μ — smoothing failed: {out['e0_smoothing_failed']})")
 
     def exafs_selected(self) -> None:
         items = self.norm_mu_list.selectedItems()
@@ -213,3 +215,5 @@ class NormTabMixin:
             ax.legend(fontsize=8); ax.grid(alpha=0.25)
             self.norm_plot.figure.tight_layout()
             self.norm_plot.canvas.draw_idle()
+            if out.get("e0_smoothing_failed"):
+                self._set_status(f"EXAFS computed (E0 found from UNSMOOTHED μ — smoothing failed: {out['e0_smoothing_failed']})")

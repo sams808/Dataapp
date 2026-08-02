@@ -184,6 +184,15 @@ def savgol_coeffs(window: int, poly: int, deriv: int = 0) -> np.ndarray:
 
 def savgol_filter(y: np.ndarray, window: int, poly: int) -> np.ndarray:
     y = np.asarray(y, float)
+    if window >= y.size:
+        # np.pad's "reflect" mode silently handles a pad width larger than
+        # the array (via repeated reflection) instead of raising, so a
+        # window this large doesn't error -- it silently produces a
+        # heavily-distorted result instead (found via a real EasyXAFS
+        # scan: window=99999 on a 292-point curve ran "successfully" and
+        # shifted the found e0 by 44 eV with no indication anything was
+        # wrong). Raise explicitly instead of letting that through.
+        raise ValueError(f"Savitzky-Golay window ({window}) must be smaller than the data length ({y.size})")
     c = savgol_coeffs(window, poly, deriv=0)
     half = window // 2
     ypad = np.pad(y, (half, half), mode="reflect")
@@ -447,11 +456,19 @@ def larch_normalize(energy: np.ndarray, mu: np.ndarray, *, e0_method: str, e0_ma
     energy = np.asarray(energy, float); mu = np.asarray(mu, float)
 
     mu_use = mu
+    e0_smoothing_failed: Optional[str] = None
     if smooth_for_e0 is not None:
         try:
             mu_use = smooth_spectrum(mu, smooth_for_e0[0], smooth_for_e0[1])
-        except Exception:
-            pass
+        except Exception as exc:
+            # Previously silent: a misconfigured/failed smoothing request
+            # (e.g. a window wider than the data, or a bad spline `s`) fell
+            # back to the unsmoothed mu with zero visibility to the
+            # caller, so a wrong e0-finding smoothing choice looked
+            # identical to "no smoothing requested." Surfaced via this
+            # flag instead so the UI can tell the user their smoothing
+            # request didn't actually apply.
+            e0_smoothing_failed = f"{type(exc).__name__}: {exc}"
 
     if e0_method == "manual" and e0_manual is not None and np.isfinite(e0_manual):
         e0 = float(e0_manual)
@@ -477,6 +494,7 @@ def larch_normalize(energy: np.ndarray, mu: np.ndarray, *, e0_method: str, e0_ma
         "pre_edge_line": np.asarray(getattr(g, "pre_edge", np.full_like(mu, np.nan)), float),
         "post_edge_line": np.asarray(getattr(g, "post_edge", np.full_like(mu, np.nan)), float),
         "anchors": {"pre1": e0 + float(pre1), "pre2": e0 + float(pre2), "norm1": e0 + float(norm1), "norm2": e0 + float(norm2)},
+        "e0_smoothing_failed": e0_smoothing_failed,
     }
 
 
@@ -485,11 +503,14 @@ def larch_exafs_pipeline(energy: np.ndarray, mu: np.ndarray, *, e0_method: str, 
     energy = np.asarray(energy, float); mu = np.asarray(mu, float)
 
     mu_use = mu
+    e0_smoothing_failed: Optional[str] = None
     if smooth_for_e0 is not None:
         try:
             mu_use = smooth_spectrum(mu, smooth_for_e0[0], smooth_for_e0[1])
-        except Exception:
-            pass
+        except Exception as exc:
+            # See larch_normalize's identical fix: surface this instead of
+            # silently falling back to unsmoothed mu with no indication.
+            e0_smoothing_failed = f"{type(exc).__name__}: {exc}"
 
     if e0_method == "manual" and e0_manual is not None and np.isfinite(e0_manual):
         e0 = float(e0_manual)
@@ -522,6 +543,7 @@ def larch_exafs_pipeline(energy: np.ndarray, mu: np.ndarray, *, e0_method: str, 
         "chir_mag": np.asarray(getattr(g, "chir_mag", []), float),
         "chir_re": np.asarray(getattr(g, "chir_re", []), float),
         "chir_im": np.asarray(getattr(g, "chir_im", []), float),
+        "e0_smoothing_failed": e0_smoothing_failed,
     }
 
 
