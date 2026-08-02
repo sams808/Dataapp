@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QDialog, QTextBrowser, QVBoxLayout, QWidget
 
 # Single source of the app version: shown in the window title and About,
 # and matched by the git tag at release time.
-APP_VERSION = "2.5.0"
+APP_VERSION = "2.6.0"
 APP_NAME = "PRISM"
 APP_TAGLINE = "Platform for Research In Spectroscopy & Materials"
 

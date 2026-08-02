@@ -212,7 +212,7 @@ View menu: dark mode, Python console (the live app objects are in scope).
 
 ---
 
-## PRISM 2.5.0
+## PRISM 2.6.0
 
 *Platform for Research In Spectroscopy & Materials*
 
