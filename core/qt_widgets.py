@@ -156,18 +156,6 @@ class PlotWidget(QWidget):
             self.ax.set_title(title)
         self.canvas.draw_idle()
 
-    def export_at_size_cm(self, path: str, width_cm: float, height_cm: float, dpi: int = 300) -> None:
-        """Export the current figure at an exact physical size (A FAIRE item 14:
-        a popup letting the user pick figure size in cm on export)."""
-        w_in, h_in = width_cm / 2.54, height_cm / 2.54
-        old_size = self.figure.get_size_inches()
-        try:
-            self.figure.set_size_inches(w_in, h_in)
-            self.figure.savefig(path, dpi=dpi)
-        finally:
-            self.figure.set_size_inches(*old_size)
-            self.canvas.draw_idle()
-
 
 class CheckComboBox(QWidget):
     """A drop-list with checkboxes (multi-select filter), QualX-style.
