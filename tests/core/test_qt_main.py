@@ -10,7 +10,24 @@ from __future__ import annotations
 
 import sys
 
+import raman
 import qt_main
+
+
+def _patch_rruff_science(monkeypatch, fake) -> None:
+    """`qt_main._cli_build_*` does `import raman.rruff_science as rs` —
+    an ALIASED dotted import, which CPython resolves via `IMPORT_FROM`
+    (an attribute lookup on the parent `raman` package), not directly via
+    `sys.modules`. Patching only `sys.modules["raman.rruff_science"]`
+    leaves that attribute lookup finding the REAL module (already cached
+    as `raman.rruff_science` from an earlier real import elsewhere in the
+    test session) and silently bypassing the fake. Both patches are
+    needed: sys.modules so a not-yet-imported real module is never
+    executed, and the attribute (raising=False, since a fully isolated
+    run may not have that attribute set yet either) so IMPORT_FROM finds
+    the fake regardless of what else has already imported this module."""
+    monkeypatch.setitem(sys.modules, "raman.rruff_science", fake)
+    monkeypatch.setattr(raman, "rruff_science", fake, raising=False)
 
 
 def test_configure_headless_stdio_replaces_none_streams(monkeypatch):
@@ -39,7 +56,7 @@ def test_cli_build_rruff_cache_success(monkeypatch, tmp_path):
             log("progress line")
             return 999
 
-    monkeypatch.setitem(sys.modules, "raman.rruff_science", FakeRs)
+    _patch_rruff_science(monkeypatch, FakeRs)
     logs = []
     code = qt_main._cli_build_rruff_cache(["--build-rruff-cache"], log=logs.append)
     assert code == 0
@@ -57,7 +74,7 @@ def test_cli_build_rruff_cache_parses_categories(monkeypatch):
             log("ok")
             return 1
 
-    monkeypatch.setitem(sys.modules, "raman.rruff_science", FakeRs)
+    _patch_rruff_science(monkeypatch, FakeRs)
     code = qt_main._cli_build_rruff_cache(
         ["--build-rruff-cache", "--categories", "excellent_oriented", "fair_oriented"], log=lambda m: None,
     )
@@ -71,7 +88,7 @@ def test_cli_build_rruff_cache_failure_returns_nonzero(monkeypatch):
         def download_and_build_rruff_cache(categories=None, log=None):
             raise RuntimeError("no internet")
 
-    monkeypatch.setitem(sys.modules, "raman.rruff_science", FakeRs)
+    _patch_rruff_science(monkeypatch, FakeRs)
     logs = []
     code = qt_main._cli_build_rruff_cache(["--build-rruff-cache"], log=logs.append)
     assert code == 1
@@ -85,7 +102,7 @@ def test_cli_build_amcsd_cache_success(monkeypatch):
             log("ok")
             return 42
 
-    monkeypatch.setitem(sys.modules, "raman.rruff_science", FakeRs)
+    _patch_rruff_science(monkeypatch, FakeRs)
     logs = []
     code = qt_main._cli_build_amcsd_cache(["--build-amcsd-cache"], log=logs.append)
     assert code == 0
@@ -98,7 +115,7 @@ def test_cli_build_amcsd_cache_failure_returns_nonzero(monkeypatch):
         def download_and_build_amcsd_cache(log=None):
             raise OSError("disk full")
 
-    monkeypatch.setitem(sys.modules, "raman.rruff_science", FakeRs)
+    _patch_rruff_science(monkeypatch, FakeRs)
     logs = []
     code = qt_main._cli_build_amcsd_cache(["--build-amcsd-cache"], log=logs.append)
     assert code == 1
