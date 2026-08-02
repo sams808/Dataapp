@@ -270,77 +270,32 @@ def ts_window_local_delta_bic(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, w
     return bic_without - bic_with
 
 
-def _stage3_add_gp(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows,
-                   prev: Dict[str, Any], had_ts: bool,
-                   residual_mode: str = "weighted_linear",
-                   bg_c_bounds: Optional[Tuple[float, float]] = None,
-                   q_knee: Optional[float] = None) -> Optional[Dict[str, Any]]:
-    """v4 §2: gp_p bounds are [3.0, 4.3] (class-anchored, not the older
+def _stage3_add_knee_component(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows,
+                               prev: Dict[str, Any], had_ts: bool, component_name: str, prefix: str,
+                               residual_mode: str = "weighted_linear",
+                               bg_c_bounds: Optional[Tuple[float, float]] = None,
+                               q_knee: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """Shared implementation behind `_stage3_add_gp` (component_name=
+    "guinier_porod", prefix="gp_") and `_stage3_add_beaucage`
+    (component_name="beaucage_unified", prefix="bu_") -- both are the
+    class-anchored knee-level low-q component, given the SAME staged
+    treatment (frozen bg/pl, class-anchored p bounds, q_knee-seeded Rg
+    via the identical exp(-q^2 Rg^2/3) Guinier term both components
+    share) so they compete fairly against each other in the ladder.
+
+    v4 §2: p bounds are [3.0, 4.3] (class-anchored, not the older
     [2.5, 4.3]). When q_knee is available (Stage A's own classifier), Rg
-    is seeded from the SAME q1=(1/Rg)*sqrt(3*p/2) relationship this
-    module's own GuinierPorod._q1_D already uses at fit time (Hammouda's
+    is seeded from the SAME q1=(1/Rg)*sqrt(3*p/2) relationship
+    guinier_porod's own GuinierPorod._q1_D uses at fit time (Hammouda's
     Guinier-Porod crossover), evaluated at the seed-time default p=4.0:
     Rg_seed = sqrt(6)/q_knee ~= 2.449/q_knee. The ticket's own text
     proposes "1.9/q_knee" but flags it "[[cross-check against Hammouda
     q1]]" as unverified; sqrt(6) (not 1.9) is what falls out of solving
     this component's own crossover formula for Rg at p=4, so it's used
-    here instead, self-consistent with how gp_p is actually fit."""
-    prev_names = ["flat_background", "power_law"] + (["teubner_strey"] if had_ts else [])
-    model = build_composite(prev_names + ["guinier_porod"])
-    mask = _mask_for(q, windows, ("W_loq",))
-    min_pts = 8  # GP has 3 free params (G, Rg, p) -- needs more than the
-    # generic 5-point "insufficient window" bar used for 2-parameter fits
-    # elsewhere in this file, or an under-determined fit can hit a wild,
-    # overfit local optimum that matches its handful of in-window points
-    # exactly but diverges badly everywhere else (found on the real
-    # P5Bi0 profile: a 5-point GP fit reached rms_log=5.7, far worse
-    # than plain BG, rather than failing outright).
-    if int(mask.sum()) < min_pts and q_knee is not None and q_knee > 0:
-        # v4 §4: W_loq (the pre-knee-only flat region) is derived as
-        # [q_min, 0.7*q_knee] -- at this instrument's real point spacing
-        # that can be only 1-2 points wide for a knee sitting close to
-        # q_min (confirmed on the real P0Bi0 profile), too few to
-        # constrain a GP fit at all despite the classifier having
-        # already confirmed a genuine knee exists. Widen to include the
-        # knee TRANSITION itself (up to W_hiq's own low edge, or a fixed
-        # multiple of q_knee, whichever is smaller) rather than skip a
-        # class-anchored component the classifier says belongs here --
-        # Guinier-Porod's own p/Rg trade-off needs the steep side of the
-        # crossover to be identifiable anyway, not just the flat part.
-        hiq_lo = windows.get("W_hiq", (float(np.max(q)), float(np.max(q))))[0]
-        wide_hi = min(hiq_lo, 3.0 * q_knee)
-        mask = (q >= float(np.min(q))) & (q <= wide_hi)
-    if int(mask.sum()) < min_pts:
-        return None
-    frozen = prev["result"].params
-    seed_values = {name: frozen[name].value for name in frozen}
-    gp_seed = model.components[-1][1].seed(q[mask], I[mask], windows)
-    if q_knee is not None and q_knee > 0:
-        gp_seed["Rg"] = math.sqrt(6.0) / q_knee
-    seed_values.update({f"gp_{k}": v for k, v in gp_seed.items()})
-    bound_overrides = {"bg_C": bg_c_bounds} if bg_c_bounds is not None else {}
-    params = model.to_lmfit_parameters(seed_values=seed_values, bound_overrides=bound_overrides)
-    for name in frozen:
-        if name != "bg_C":
-            model.fix(params, name, frozen[name].value)
-    params["gp_p"].set(min=3.0, max=4.3)
-    if not (params["gp_p"].min < params["gp_p"].value < params["gp_p"].max):
-        params["gp_p"].set(value=4.0)
-    result = model.fit(q[mask], I[mask], sigma=sigma[mask], params=params, residual_mode=residual_mode)
-    return {"model": model, "result": result, "mask": mask, "seeds": seed_values}
+    here instead, self-consistent with how gp_p is actually fit.
 
-
-def _stage3_add_beaucage(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows,
-                         prev: Dict[str, Any], had_ts: bool,
-                         residual_mode: str = "weighted_linear",
-                         bg_c_bounds: Optional[Tuple[float, float]] = None,
-                         q_knee: Optional[float] = None) -> Optional[Dict[str, Any]]:
-    """v5 (Beaucage-augmented model library): the class-anchored knee-level
-    ALTERNATIVE to _stage3_add_gp, given the SAME staged treatment (frozen
-    bg/pl, class-anchored p bounds, q_knee-seeded Rg via the identical
-    exp(-q^2 Rg^2/3) Guinier term both components share) so it competes
-    fairly in the ladder rather than arriving as a hastily fresh-seeded
-    sibling. Motivation: composite_models.BeaucageUnified was already
+    Motivation for beaucage_unified existing as a sibling to
+    guinier_porod at all: composite_models.BeaucageUnified was already
     implemented (Beaucage, J. Appl. Cryst. 28, 717, 1995) but never wired
     into any preset or stage -- Hammouda's guinier_porod hard-switches to
     a FIXED power-law asymptote at its own continuity point q1, which
@@ -353,10 +308,27 @@ def _stage3_add_beaucage(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, window
     Guinier exponential contributes directly there rather than being cut
     off at a single matched point."""
     prev_names = ["flat_background", "power_law"] + (["teubner_strey"] if had_ts else [])
-    model = build_composite(prev_names + ["beaucage_unified"])
+    model = build_composite(prev_names + [component_name])
     mask = _mask_for(q, windows, ("W_loq",))
-    min_pts = 8  # matches _stage3_add_gp's own bar (3 free params: Rg, B, p)
+    min_pts = 8  # 3 free params (Rg, B/G, p) -- needs more than the
+    # generic 5-point "insufficient window" bar used for 2-parameter fits
+    # elsewhere in this file, or an under-determined fit can hit a wild,
+    # overfit local optimum that matches its handful of in-window points
+    # exactly but diverges badly everywhere else (found on the real
+    # P5Bi0 profile: a 5-point GP fit reached rms_log=5.7, far worse
+    # than plain BG, rather than failing outright).
     if int(mask.sum()) < min_pts and q_knee is not None and q_knee > 0:
+        # v4 §4: W_loq (the pre-knee-only flat region) is derived as
+        # [q_min, 0.7*q_knee] -- at this instrument's real point spacing
+        # that can be only 1-2 points wide for a knee sitting close to
+        # q_min (confirmed on the real P0Bi0 profile), too few to
+        # constrain a fit at all despite the classifier having already
+        # confirmed a genuine knee exists. Widen to include the knee
+        # TRANSITION itself (up to W_hiq's own low edge, or a fixed
+        # multiple of q_knee, whichever is smaller) rather than skip a
+        # class-anchored component the classifier says belongs here --
+        # this component's own p/Rg trade-off needs the steep side of
+        # the crossover to be identifiable anyway, not just the flat part.
         hiq_lo = windows.get("W_hiq", (float(np.max(q)), float(np.max(q))))[0]
         wide_hi = min(hiq_lo, 3.0 * q_knee)
         mask = (q >= float(np.min(q))) & (q <= wide_hi)
@@ -364,20 +336,45 @@ def _stage3_add_beaucage(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, window
         return None
     frozen = prev["result"].params
     seed_values = {name: frozen[name].value for name in frozen}
-    bc_seed = model.components[-1][1].seed(q[mask], I[mask], windows)
+    knee_seed = model.components[-1][1].seed(q[mask], I[mask], windows)
     if q_knee is not None and q_knee > 0:
-        bc_seed["Rg"] = math.sqrt(6.0) / q_knee
-    seed_values.update({f"bu_{k}": v for k, v in bc_seed.items()})
+        knee_seed["Rg"] = math.sqrt(6.0) / q_knee
+    seed_values.update({f"{prefix}{k}": v for k, v in knee_seed.items()})
     bound_overrides = {"bg_C": bg_c_bounds} if bg_c_bounds is not None else {}
     params = model.to_lmfit_parameters(seed_values=seed_values, bound_overrides=bound_overrides)
     for name in frozen:
         if name != "bg_C":
             model.fix(params, name, frozen[name].value)
-    params["bu_p"].set(min=3.0, max=4.3)
-    if not (params["bu_p"].min < params["bu_p"].value < params["bu_p"].max):
-        params["bu_p"].set(value=4.0)
+    p_name = f"{prefix}p"
+    params[p_name].set(min=3.0, max=4.3)
+    if not (params[p_name].min < params[p_name].value < params[p_name].max):
+        params[p_name].set(value=4.0)
     result = model.fit(q[mask], I[mask], sigma=sigma[mask], params=params, residual_mode=residual_mode)
     return {"model": model, "result": result, "mask": mask, "seeds": seed_values}
+
+
+def _stage3_add_gp(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows,
+                   prev: Dict[str, Any], had_ts: bool,
+                   residual_mode: str = "weighted_linear",
+                   bg_c_bounds: Optional[Tuple[float, float]] = None,
+                   q_knee: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """The Hammouda Guinier-Porod knee-level low-q component. See
+    `_stage3_add_knee_component`'s own docstring for the shared mechanics
+    and `_stage3_add_beaucage` for its sibling alternative."""
+    return _stage3_add_knee_component(q, I, sigma, windows, prev, had_ts, "guinier_porod", "gp_",
+                                      residual_mode=residual_mode, bg_c_bounds=bg_c_bounds, q_knee=q_knee)
+
+
+def _stage3_add_beaucage(q: np.ndarray, I: np.ndarray, sigma: np.ndarray, windows: Windows,
+                         prev: Dict[str, Any], had_ts: bool,
+                         residual_mode: str = "weighted_linear",
+                         bg_c_bounds: Optional[Tuple[float, float]] = None,
+                         q_knee: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """v5 (Beaucage-augmented model library): the class-anchored knee-level
+    ALTERNATIVE to `_stage3_add_gp`. See `_stage3_add_knee_component`'s
+    own docstring for the shared mechanics and motivation."""
+    return _stage3_add_knee_component(q, I, sigma, windows, prev, had_ts, "beaucage_unified", "bu_",
+                                      residual_mode=residual_mode, bg_c_bounds=bg_c_bounds, q_knee=q_knee)
 
 
 def detect_guinier_knee(q: np.ndarray, I: np.ndarray, windows: Windows) -> bool:
