@@ -29,11 +29,13 @@ self-absorption correction is a substantial standalone physics feature):
 merge/average repeat scans, difference spectra, linear combination fitting
 (NNLS-based, 2+ references).
 
-Deliberately deferred to a documented follow-up (not half-implemented):
-the Pre-processing tab (smoothing preview/apply, Bragg angle/energy
-correction, Mode C interactive click-based feature alignment — all fairly
-beamline/angle-dispersive-specific), the separate I0 baseline-"Fit" tab,
-PCA, self-absorption correction, the CSV Builder export tool.
+The Pre-processing tab (smoothing preview/apply, Bragg angle/energy
+correction, Mode C interactive click-based feature alignment) and PCA
+(Analysis tab, scikit-learn-based) were originally deferred but are both
+now implemented below. Still genuinely missing, deliberately not
+half-implemented: self-absorption correction (a substantial standalone
+physics feature), the separate I0 baseline-"Fit" tab from the old Tk app,
+and the CSV Builder export tool.
 """
 from __future__ import annotations
 

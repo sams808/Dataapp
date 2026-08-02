@@ -563,18 +563,6 @@ class LibraryPage(QWidget):
         self.plot.canvas.draw_idle()
 
 
-class PlaceholderPage(QWidget):
-    """A technique workspace not yet ported (filled in by M6/M11/M7/M8)."""
-
-    def __init__(self, name: str, parent: Optional[QWidget] = None):
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignCenter)
-        label = QLabel(f"{name} workspace — coming in a later milestone.")
-        label.setObjectName("SectionNote")
-        layout.addWidget(label)
-
-
 class PrismMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()

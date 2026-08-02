@@ -9,10 +9,13 @@ control that triggers a redraw goes through PlotWidget.request_redraw(),
 so the same class of bug is structurally avoided rather than patched after
 the fact.
 
-Deferred to a follow-up (not in this slice): DTA-specific derivative
-plotting within Simple Plot, spectral-difference mode, click-to-annotate,
-mouse-move coordinate readout, dark mode. FitParamWindow (ui_fit_params.py)
-is scoped to M8 instead, since that's where single-spectrum fitting lives.
+Of the items originally deferred here, spectral-difference mode,
+click-to-annotate, mouse-move coordinate readout, and dark mode are all
+now implemented below (or, for the cursor readout and dark mode, in the
+shared core/qt_widgets.py and core/qt_shell.py respectively). Still
+missing: DTA-specific derivative plotting within this workspace.
+FitParamWindow (ui_fit_params.py) is scoped to single-spectrum fitting
+(processing/qt_fit_params.py) instead, since that's where it lives.
 
 Reads spectra directly from the shared SpectrumLibrary/Spectrum model (M5)
 rather than re-loading via injected loader callables the way the Tk version

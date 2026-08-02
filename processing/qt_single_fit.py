@@ -23,12 +23,11 @@ M8 milestone, "layer 1-5" additive items):
   - "Auto-find peaks" in the fit-parameter dialog (qt_fit_params.py),
     backed by fitting_science.find_peak_candidates (2nd-derivative finder).
 
-Deferred to a documented follow-up (not in this slice): asymmetric/named-
-component peak shapes, a true independently-parameterized Voigt or EMG
-shape, cross-component parameter linking, and lmfit conf_interval()-based
-confidence intervals — each needs a params_struct schema change and/or a
-materially bigger parameter-table UI, so they're intentionally out of this
-pass rather than half-implemented.
+All four items originally deferred here — true Voigt/EMG peak shapes,
+cross-component parameter linking, and lmfit conf_interval()-based
+confidence intervals — are now implemented (fitting_science.voigt_peak/
+emg_peak, the link_fwhm/link_eta constraint mechanism, and
+show_confidence_intervals below).
 """
 from __future__ import annotations
 

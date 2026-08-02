@@ -30,7 +30,7 @@ SOURCES_NOTE = (
 
 
 class GlassWorkspace(QWidget):
-    def __init__(self, parent: Optional[QWidget] = None, library=None):
+    def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._df = None
         self._results = None

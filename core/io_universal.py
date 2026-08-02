@@ -1,6 +1,6 @@
-# io_universal_v40.py
+# io_universal.py
 # --------------------------------------------------------------------------------------
-# Universal loader (V40): robust sniffers + parsers + registry
+# Universal loader: robust sniffers + parsers + registry
 # Supports:
 #   1) TA SDT Q600 ASCII (DSC-TGA) with SigN + StartOfData
 #   2) SAXS EDF ASCII exports (header with '#', then 'q(A-1)  I(q)  Sig(q)')
