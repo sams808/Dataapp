@@ -29,13 +29,7 @@ from dta.dta_science import (
 )
 from core.io_universal import parse_ta_sdt_txt
 from core.qt_widgets import PlotWidget
-
-
-def _to_float(text: str) -> Optional[float]:
-    try:
-        return float(text)
-    except (TypeError, ValueError):
-        return None
+from core.qt_widgets import to_float as _to_float
 
 
 def _unit_from_col(col: str) -> str:

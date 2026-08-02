@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 
 from core.fitting_science import find_peak_candidates
 from core.qt_models import SpectrumLibrary
-from core.qt_widgets import PlotWidget
+from core.qt_widgets import PlotWidget, to_float as _to_float
 from raman.rruff_science import (
     RRUFF_ATTRIBUTION_NOTE,
     RRUFF_CACHE_DIR,
@@ -47,13 +47,6 @@ from raman.rruff_science import (
 )
 
 RESULT_COLUMNS = ["Mineral", "RRUFF ID", "λ (nm)", "Matched", "Match %", "Category"]
-
-
-def _to_float(text: str, default: Optional[float] = None) -> Optional[float]:
-    try:
-        return float((text or "").strip())
-    except (TypeError, ValueError):
-        return default
 
 
 class RruffMatchWorkspace(QWidget):

@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.qt_models import Spectrum, SpectrumLibrary
-from core.qt_widgets import PlotWidget
+from core.qt_widgets import PlotWidget, to_float as _to_float
 from saxs.core.analysis import (
     auto_detect_guinier_region, auto_detect_peak_window, auto_detect_porod_region,
     fit_guinier, fit_porod_general, fit_pseudo_bragg_peak,
@@ -42,13 +42,6 @@ def _model_for_preset_name(name: str) -> CompositeModel:
     if name in PRESETS:
         return build_preset(name)
     return build_composite(name.split("+"))
-
-
-def _to_float(text: str, default: Optional[float] = None) -> Optional[float]:
-    try:
-        return float((text or "").strip())
-    except (TypeError, ValueError):
-        return default
 
 
 class SaxsWorkspace(QWidget):

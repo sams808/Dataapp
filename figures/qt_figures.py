@@ -34,16 +34,9 @@ from PySide6.QtWidgets import (
 
 import figures.figures_science as fsc
 from core.qt_models import SpectrumLibrary
-from core.qt_widgets import PlotWidget
+from core.qt_widgets import PlotWidget, to_float as _to_float
 
 LAYER_COLORS = ["black", "crimson", "royalblue", "seagreen", "darkorange", "purple", "teal", "brown"]
-
-
-def _to_float(text: str, default: Optional[float] = None) -> Optional[float]:
-    try:
-        return float((text or "").strip())
-    except (TypeError, ValueError):
-        return default
 
 
 class FiguresWorkspace(QWidget):

@@ -38,17 +38,10 @@ from PySide6.QtWidgets import (
 
 from raman.cif_tools import bragg_peaks_from_cif_generic, list_cif_files_case_insensitive
 from core.qt_models import SpectrumLibrary
-from core.qt_widgets import PlotWidget
+from core.qt_widgets import PlotWidget, to_float as _to_float
 
 CIF_COLORS = ["crimson", "royalblue", "seagreen", "darkorange", "purple", "goldenrod"]
 LINE_COLORS = ["navy", "darkred", "seagreen", "darkorange", "purple", "teal", "brown", "indigo"]
-
-
-def _to_float(text: str) -> Optional[float]:
-    try:
-        return float((text or "").strip().replace(",", "."))
-    except (TypeError, ValueError):
-        return None
 
 
 class CifManagerDialog(QDialog):

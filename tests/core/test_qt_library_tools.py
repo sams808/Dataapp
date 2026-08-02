@@ -79,7 +79,7 @@ def test_export_selected_single_writes_two_column_txt(qtbot, tmp_path, monkeypat
     page.table.selectRow(0)
 
     out = tmp_path / "expo.txt"
-    monkeypatch.setattr("qt_shell.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(out), "")))
+    monkeypatch.setattr("core.qt_shell.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(out), "")))
     page._export_selected_txt()
 
     assert out.exists()
@@ -93,7 +93,7 @@ def test_export_selected_multi_writes_into_folder(qtbot, tmp_path, monkeypatch):
     page = window.library_page
     page.table.selectAll()
 
-    monkeypatch.setattr("qt_shell.QFileDialog.getExistingDirectory", staticmethod(lambda *a, **k: str(tmp_path)))
+    monkeypatch.setattr("core.qt_shell.QFileDialog.getExistingDirectory", staticmethod(lambda *a, **k: str(tmp_path)))
     page._export_selected_txt()
 
     assert (tmp_path / "one.txt").exists()

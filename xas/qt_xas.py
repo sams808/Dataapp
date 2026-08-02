@@ -51,7 +51,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from core.qt_widgets import PlotWidget
+from core.qt_widgets import PlotWidget, to_float as _to_float
 from xas.xas_science import (
     _SCIPY_AVAILABLE,
     Operation,
@@ -81,13 +81,6 @@ from xas.xas_science import (
 )
 
 COLORS = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f"]
-
-
-def _to_float(text: str, default: Optional[float] = None) -> Optional[float]:
-    try:
-        return float((text or "").strip())
-    except (TypeError, ValueError):
-        return default
 
 
 def _to_int(text: str, default: int) -> int:

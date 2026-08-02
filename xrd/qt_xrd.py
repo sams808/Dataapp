@@ -30,19 +30,12 @@ from PySide6.QtWidgets import (
 import xrd.xrd_id_science as xid
 from core.fitting_science import find_peak_candidates
 from core.qt_models import SpectrumLibrary
-from core.qt_widgets import PlotWidget
+from core.qt_widgets import PlotWidget, to_float as _to_float
 
 RESULT_COLUMNS = ["FoM %", "Mineral / name", "Formula", "Source", "Code", "Q", "Space group", "Matched"]
 CARD_COLORS = ["crimson", "royalblue", "seagreen", "darkorange", "purple", "teal"]
 # Muted palette for phases already accepted (they stay overlaid, QualX-style)
 ACCEPTED_COLORS = ["#9c6b74", "#6b7d9c", "#6b9c7d", "#9c8a6b", "#856b9c", "#6b969c"]
-
-
-def _to_float(text: str, default: Optional[float] = None) -> Optional[float]:
-    try:
-        return float((text or "").strip())
-    except (TypeError, ValueError):
-        return default
 
 
 def _parse_elements(text: str) -> List[str]:

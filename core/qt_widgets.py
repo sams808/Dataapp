@@ -23,6 +23,22 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 
+def to_float(text: str, default: Optional[float] = None) -> Optional[float]:
+    """Parse a QLineEdit-style numeric field: strips whitespace, tolerates a
+    locale decimal comma (e.g. "1,5" -> 1.5 - harmless for values that
+    already use '.', since a mixed thousands-separator string like
+    "1,234.5" fails to parse either way), and returns `default` (None
+    unless given) instead of raising on empty/invalid input.
+
+    The single shared implementation of a pattern that used to be copy-pasted
+    with real behavioral drift across 11 workspace files - some lacked the
+    strip()/None-guard, some lacked the comma handling."""
+    try:
+        return float((text or "").strip().replace(",", "."))
+    except (TypeError, ValueError):
+        return default
+
+
 class PlotWidget(QWidget):
     """Figure + canvas + navigation toolbar, with a debounced redraw helper.
 

@@ -39,7 +39,7 @@ def test_import_files_with_template_orders_series_by_ramp(qtbot, tmp_path, monke
     qtbot.addWidget(widget)
     widget.template_edit.setText("scan_???.xy")
 
-    monkeypatch.setattr("qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
+    monkeypatch.setattr("xrd.qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
     widget.import_files()
     qtbot.wait(200)  # waterfall render is debounced via request_redraw
 
@@ -58,7 +58,7 @@ def test_track_peak_populates_table_plot_and_flags(qtbot, tmp_path, monkeypatch)
     widget = HtxrdWorkspace()
     qtbot.addWidget(widget)
     widget.template_edit.setText("scan_???.xy")
-    monkeypatch.setattr("qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
+    monkeypatch.setattr("xrd.qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
     widget.import_files()
     qtbot.wait(200)
 
@@ -90,7 +90,7 @@ def test_track_peak_invalid_window_warns(qtbot, tmp_path, monkeypatch):
     paths = _write_series(tmp_path)
     widget = HtxrdWorkspace()
     qtbot.addWidget(widget)
-    monkeypatch.setattr("qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
+    monkeypatch.setattr("xrd.qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
     widget.import_files()
     qtbot.wait(200)
 
@@ -104,7 +104,7 @@ def test_export_track_csv_writes_file(qtbot, tmp_path, monkeypatch):
     widget = HtxrdWorkspace()
     qtbot.addWidget(widget)
     widget.template_edit.setText("scan_???.xy")
-    monkeypatch.setattr("qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
+    monkeypatch.setattr("xrd.qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
     widget.import_files()
     qtbot.wait(200)
     widget.windows_edit.setText("29.0-31.0")
@@ -112,7 +112,7 @@ def test_export_track_csv_writes_file(qtbot, tmp_path, monkeypatch):
     qtbot.wait(20)
 
     out_path = tmp_path / "track.csv"
-    monkeypatch.setattr("qt_htxrd.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(out_path), "")))
+    monkeypatch.setattr("xrd.qt_htxrd.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(out_path), "")))
     widget.export_track_csv()
 
     assert out_path.exists()
@@ -128,7 +128,7 @@ def test_multi_window_tracking_populates_labels_and_legend(qtbot, tmp_path, monk
     widget = HtxrdWorkspace()
     qtbot.addWidget(widget)
     widget.template_edit.setText("scan_???.xy")
-    monkeypatch.setattr("qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
+    monkeypatch.setattr("xrd.qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
     widget.import_files()
     qtbot.wait(200)
 
@@ -152,7 +152,7 @@ def test_maps_tab_renders_heatmap_difference_and_3d(qtbot, tmp_path, monkeypatch
     widget = HtxrdWorkspace()
     qtbot.addWidget(widget)
     widget.template_edit.setText("scan_???.xy")
-    monkeypatch.setattr("qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
+    monkeypatch.setattr("xrd.qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
     widget.import_files()
     qtbot.wait(200)
 
@@ -184,7 +184,7 @@ def test_time_axis_from_heating_rate(qtbot, tmp_path, monkeypatch):
     widget = HtxrdWorkspace()
     qtbot.addWidget(widget)
     widget.template_edit.setText("scan_???.xy")
-    monkeypatch.setattr("qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
+    monkeypatch.setattr("xrd.qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
     widget.import_files()
     qtbot.wait(200)
 
@@ -203,7 +203,7 @@ def test_real_rasx_example_loads_with_metadata_temperature(qtbot, monkeypatch, e
     rasx = examples_dir / "HTXRD_example.rasx"
     widget = HtxrdWorkspace()
     qtbot.addWidget(widget)
-    monkeypatch.setattr("qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: ([str(rasx)], "")))
+    monkeypatch.setattr("xrd.qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: ([str(rasx)], "")))
     widget.import_files()
     qtbot.wait(200)
 
@@ -234,7 +234,7 @@ def test_pick_guide_on_waterfall_and_track(qtbot, tmp_path, monkeypatch):
     widget = HtxrdWorkspace()
     qtbot.addWidget(widget)
     widget.template_edit.setText("scan_???.xy")
-    monkeypatch.setattr("qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
+    monkeypatch.setattr("xrd.qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
     widget.import_files()
     qtbot.wait(250)
 
@@ -273,7 +273,7 @@ def test_auto_track_all_fills_windows_and_tracks(qtbot, tmp_path, monkeypatch):
     widget = HtxrdWorkspace()
     qtbot.addWidget(widget)
     widget.template_edit.setText("scan_???.xy")
-    monkeypatch.setattr("qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
+    monkeypatch.setattr("xrd.qt_htxrd.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: (paths, "")))
     widget.import_files()
     qtbot.wait(250)
 

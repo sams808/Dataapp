@@ -48,17 +48,10 @@ from xrd.htxrd_science import (
     track_peak_guided,
     track_peaks_multi,
 )
-from core.qt_widgets import PlotWidget
+from core.qt_widgets import PlotWidget, to_float as _to_float
 
 MAP_CMAPS = ["magma", "inferno", "viridis", "plasma", "jet", "Greys", "RdBu_r"]
 TRACK_COLORS = ["royalblue", "crimson", "seagreen", "darkorange", "purple", "brown", "teal"]
-
-
-def _to_float(text: str, default: Optional[float] = None) -> Optional[float]:
-    try:
-        return float((text or "").strip())
-    except (TypeError, ValueError):
-        return default
 
 
 class HtxrdWorkspace(QWidget):

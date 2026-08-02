@@ -51,7 +51,7 @@ def test_import_csv_classifies_i0_and_it_by_filename(qtbot, tmp_path, monkeypatc
 
     widget = XasWorkspace()
     qtbot.addWidget(widget)
-    monkeypatch.setattr("qt_xas.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: ([str(i0_path), str(it_path)], "")))
+    monkeypatch.setattr("xas.qt_xas.QFileDialog.getOpenFileNames", staticmethod(lambda *a, **k: ([str(i0_path), str(it_path)], "")))
     widget.import_csvs()
 
     names_kinds = [(widget.table.item(r, 0).text(), widget.table.item(r, 1).text()) for r in range(widget.table.rowCount())]
@@ -335,7 +335,7 @@ def test_export_athena_dat_writes_file(qtbot, tmp_path, monkeypatch):
     widget.selected_sid = sp.sid
 
     out_path = tmp_path / "exported.dat"
-    monkeypatch.setattr("qt_xas.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(out_path), "")))
+    monkeypatch.setattr("xas.qt_xas.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (str(out_path), "")))
     widget.export_athena_dat()
 
     assert out_path.exists()

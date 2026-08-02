@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 import processing.calc_science as cs
 from core.qt_models import Spectrum, SpectrumLibrary
-from core.qt_widgets import PlotWidget
+from core.qt_widgets import PlotWidget, to_float as _to_float
 
 _SUFFIX = {
     "add": "add", "subtract": "sub", "multiply": "mul", "divide": "div",
@@ -36,13 +36,6 @@ _SUFFIX = {
     "savgol": "sg", "moving_average": "ma", "median": "med", "despike": "despiked",
     "1": "d1", "2": "d2", "cumulative": "integ", "lcf": "lcf",
 }
-
-
-def _to_float(text: str, default: Optional[float] = None) -> Optional[float]:
-    try:
-        return float((text or "").strip())
-    except (TypeError, ValueError):
-        return default
 
 
 class CalcWorkspace(QWidget):

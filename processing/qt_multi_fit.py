@@ -42,16 +42,9 @@ from core.fitting_science import (
 from processing.qt_fit_params import FitParamDialog, list_model_names, load_model, _default_model_dir
 from core.qt_models import SpectrumLibrary
 from core.qt_settings_store import PerItemSettingsStore
-from core.qt_widgets import PlotWidget
+from core.qt_widgets import PlotWidget, to_float as _to_float
 
 COLORS = ["black", "red", "seagreen", "royalblue", "orange", "purple", "brown", "indigo"]
-
-
-def _to_float(text: str, default: Optional[float] = None) -> Optional[float]:
-    try:
-        return float((text or "").strip())
-    except (TypeError, ValueError):
-        return default
 
 
 @dataclass
