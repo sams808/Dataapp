@@ -96,7 +96,15 @@ class AnalysisTabMixin:
             QMessageBox.warning(self, "Combine", f"Select at least 2 spectra to {op}.")
             return
         ref = specs[0]
-        combined = combine_spectra(ref.energy, ref.y, [(sp.energy, sp.y) for sp in specs[1:]], op)
+        try:
+            combined = combine_spectra(ref.energy, ref.y, [(sp.energy, sp.y) for sp in specs[1:]], op)
+        except ValueError as exc:
+            # combine_spectra raises when a selected spectrum doesn't cover
+            # the reference's full energy range (e.g. a repeat scan cut
+            # short by an instrument fault) -- a real scenario found via
+            # the Bi L3 real-data review, not a hypothetical.
+            QMessageBox.critical(self, "Combine error", str(exc))
+            return
 
         suffix = "sum" if op == "sum" else "avg"
         sp_new = ref.copy(new_name=f"{ref.name}_{suffix}{len(specs)}", new_kind=ref.kind)

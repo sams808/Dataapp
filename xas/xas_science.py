@@ -560,9 +560,32 @@ def combine_spectra(ref_energy: np.ndarray, ref_y: np.ndarray,
     """Average (merge of repeat scans) or sum (e.g. adding up detector
     channels / partial acquisitions) of `ref` plus `others`, each of the
     latter interpolated onto `ref_energy` first. `op` is "sum" or
-    "average"."""
+    "average".
+
+    Raises ValueError if any `others` entry doesn't fully cover
+    `ref_energy`'s range: `_interp_to_grid` (np.interp under the hood)
+    silently holds the boundary value flat for points outside the source
+    range rather than erroring, which for a genuinely truncated repeat
+    scan (found via a real EasyXAFS acquisition cut short mid-scan by an
+    instrument fault) produces a plausible-looking but silently WRONG
+    result over the missing region -- up to several percent error, with
+    no indication anything was extrapolated rather than measured. Repeat
+    scans meant to be averaged together should cover the same range by
+    construction; a real range mismatch is a data-quality problem the
+    caller needs to know about, not something to paper over."""
+    ref_energy = np.asarray(ref_energy, float)
+    ref_lo, ref_hi = float(np.nanmin(ref_energy)), float(np.nanmax(ref_energy))
     stacked = [np.asarray(ref_y, float)]
-    for energy, y in others:
+    for i, (energy, y) in enumerate(others):
+        energy = np.asarray(energy, float)
+        lo, hi = float(np.nanmin(energy)), float(np.nanmax(energy))
+        if lo > ref_lo + 1e-6 or hi < ref_hi - 1e-6:
+            raise ValueError(
+                f"combine_spectra: input {i} covers [{lo:.1f}, {hi:.1f}] eV, which doesn't fully "
+                f"cover the reference range [{ref_lo:.1f}, {ref_hi:.1f}] eV -- likely a truncated/"
+                f"incomplete scan (e.g. an instrument fault mid-acquisition). Exclude it rather than "
+                f"average/sum it in, or crop the reference to the shared overlap range first."
+            )
         stacked.append(_interp_to_grid(energy, y, ref_energy))
     matrix = np.vstack(stacked)
     return np.sum(matrix, axis=0) if op == "sum" else np.mean(matrix, axis=0)

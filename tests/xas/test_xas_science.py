@@ -132,6 +132,59 @@ def test_build_mu_interpolates_it_onto_i0_grid():
 
 
 # --------------------------------------------------------------------------
+# Analysis tab math (combine/difference/linear-combination-fit) -- pulled
+# out of qt_xas.py's Analysis tab into pure functions here, but never got
+# dedicated unit tests of its own until the Bi L3 real-data review.
+# --------------------------------------------------------------------------
+
+def test_combine_spectra_average_and_sum():
+    e = np.linspace(0, 10, 20)
+    y1 = np.full(20, 2.0)
+    y2 = np.full(20, 4.0)
+    y3 = np.full(20, 6.0)
+    avg = xs.combine_spectra(e, y1, [(e, y2), (e, y3)], op="average")
+    total = xs.combine_spectra(e, y1, [(e, y2), (e, y3)], op="sum")
+    assert np.allclose(avg, 4.0)
+    assert np.allclose(total, 12.0)
+
+
+def test_combine_spectra_rejects_truncated_repeat_scan():
+    """Found via a real EasyXAFS I0_after scan cut short mid-acquisition
+    (an instrument fault): averaging in a repeat scan that doesn't cover
+    the reference's full range used to silently hold the truncated
+    scan's last value flat over the missing region (np.interp's default
+    extrapolation) rather than erroring -- up to several percent wrong,
+    with no indication anything was extrapolated."""
+    e_full = np.linspace(13300.0, 13664.0, 292)
+    y_full = np.linspace(1.0, 2.0, 292)
+    e_truncated = e_full[:144]  # cuts off partway through, like the real scan
+    y_truncated = y_full[:144]
+    with pytest.raises(ValueError, match="doesn't fully cover"):
+        xs.combine_spectra(e_full, y_full, [(e_truncated, y_truncated)], op="average")
+
+
+def test_difference_spectra_interpolates_and_subtracts():
+    e = np.linspace(0, 10, 20)
+    a = np.full(20, 5.0)
+    b_energy = np.linspace(0, 10, 15)
+    b = np.full(15, 2.0)
+    b_interp, diff = xs.difference_spectra(e, a, b_energy, b)
+    assert np.allclose(b_interp, 2.0)
+    assert np.allclose(diff, 3.0)
+
+
+def test_linear_combination_fit_recovers_known_weights():
+    e = np.linspace(0, 10, 100)
+    ref1 = np.sin(e)
+    ref2 = np.cos(e)
+    target = 0.7 * ref1 + 0.3 * ref2
+    out = xs.linear_combination_fit(e, target, [(e, ref1), (e, ref2)])
+    assert out["weights"] == pytest.approx([0.7, 0.3], abs=1e-6)
+    assert out["r2"] == pytest.approx(1.0, abs=1e-6)
+    assert np.allclose(out["fit_y"], target, atol=1e-6)
+
+
+# --------------------------------------------------------------------------
 # M11 fix: compute_mu's deglitch parameters were previously dead (accepted
 # but never used).
 # --------------------------------------------------------------------------
