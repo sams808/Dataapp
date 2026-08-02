@@ -401,19 +401,6 @@ def parse_composition(text: str, mode: str = "formula", basis: str = "molar") ->
     )
 
 
-def effective_formula_for_xraydb(comp: CompositionResult) -> str:
-    """
-    Return the most appropriate string for xraydb.material_mu.
-
-    For true formulas, we return the formula as-is.
-    For mixtures, xraydb cannot ingest arbitrary weighted mixtures directly,
-    so callers should use mass_fractions with elemental mu values.
-    """
-    if comp.mode == "formula":
-        return comp.formula_text
-    raise ValueError("Mixture compositions must be evaluated via elemental mass-fraction mixing.")
-
-
 def mixture_mu_mass_from_fractions(mass_fractions: Dict[str, float], energy_ev: float, kind: str = "total") -> float:
     total = 0.0
     for symbol, frac in mass_fractions.items():
@@ -496,52 +483,6 @@ def calculate_absorption(
     )
     return comp, absres
 
-
-
-def density_from_molar_volumes(composition_text: str, mode: str = "mixture") -> float:
-    """Estimate density in g/cm^3 from a molar-mixture composition using built-in oxide molar volumes."""
-    if (mode or "mixture").strip().lower() != "mixture":
-        raise ValueError("Density from molar volumes currently works only in mixture mode.")
-
-    items = parse_mixture_expression(composition_text)
-    if not items:
-        raise ValueError("Mixture expression is empty.")
-
-    total = sum(max(0.0, float(amount)) for _, amount in items)
-    if total <= 0:
-        raise ValueError("Mixture amounts sum to zero.")
-
-    total_mass = 0.0
-    total_volume = 0.0
-    missing = []
-    for formula, amount in items:
-        frac = float(amount) / total
-        clean_formula = sanitize_formula_text(formula)
-        counts = xraydb.chemparse(clean_formula)
-        if not counts:
-            raise ValueError(f"Could not parse oxide formula for density calculation: {clean_formula}")
-        mw = _molar_mass_from_counts(counts)
-        molar_vol = DEFAULT_OXIDE_MOLAR_VOLUMES_CM3_MOL.get(clean_formula)
-        if molar_vol is None:
-            missing.append(clean_formula)
-            continue
-        total_mass += frac * float(mw)
-        total_volume += frac * float(molar_vol)
-
-    if missing:
-        missing_txt = ", ".join(sorted(set(missing)))
-        raise ValueError(f"Missing default molar volumes for: {missing_txt}")
-    if total_volume <= 0:
-        raise ValueError("Computed total molar volume is not positive.")
-    return total_mass / total_volume
-
-
-def energy_from_wavelength_ang(wavelength_ang: float) -> float:
-    return HC_KEV_ANG * 1000.0 / float(wavelength_ang)
-
-
-def wavelength_from_energy_ev(energy_ev: float) -> float:
-    return HC_KEV_ANG * 1000.0 / float(energy_ev)
 
 
 def theoretical_empty_transmission(capillary_mu_mm_inv: float, wall_thickness_mm: float) -> float:

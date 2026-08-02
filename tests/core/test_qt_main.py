@@ -39,7 +39,7 @@ def test_cli_build_rruff_cache_success(monkeypatch, tmp_path):
             log("progress line")
             return 999
 
-    monkeypatch.setitem(sys.modules, "rruff_science", FakeRs)
+    monkeypatch.setitem(sys.modules, "raman.rruff_science", FakeRs)
     logs = []
     code = qt_main._cli_build_rruff_cache(["--build-rruff-cache"], log=logs.append)
     assert code == 0
@@ -57,7 +57,7 @@ def test_cli_build_rruff_cache_parses_categories(monkeypatch):
             log("ok")
             return 1
 
-    monkeypatch.setitem(sys.modules, "rruff_science", FakeRs)
+    monkeypatch.setitem(sys.modules, "raman.rruff_science", FakeRs)
     code = qt_main._cli_build_rruff_cache(
         ["--build-rruff-cache", "--categories", "excellent_oriented", "fair_oriented"], log=lambda m: None,
     )
@@ -71,7 +71,7 @@ def test_cli_build_rruff_cache_failure_returns_nonzero(monkeypatch):
         def download_and_build_rruff_cache(categories=None, log=None):
             raise RuntimeError("no internet")
 
-    monkeypatch.setitem(sys.modules, "rruff_science", FakeRs)
+    monkeypatch.setitem(sys.modules, "raman.rruff_science", FakeRs)
     logs = []
     code = qt_main._cli_build_rruff_cache(["--build-rruff-cache"], log=logs.append)
     assert code == 1
@@ -85,7 +85,7 @@ def test_cli_build_amcsd_cache_success(monkeypatch):
             log("ok")
             return 42
 
-    monkeypatch.setitem(sys.modules, "rruff_science", FakeRs)
+    monkeypatch.setitem(sys.modules, "raman.rruff_science", FakeRs)
     logs = []
     code = qt_main._cli_build_amcsd_cache(["--build-amcsd-cache"], log=logs.append)
     assert code == 0
@@ -98,7 +98,7 @@ def test_cli_build_amcsd_cache_failure_returns_nonzero(monkeypatch):
         def download_and_build_amcsd_cache(log=None):
             raise OSError("disk full")
 
-    monkeypatch.setitem(sys.modules, "rruff_science", FakeRs)
+    monkeypatch.setitem(sys.modules, "raman.rruff_science", FakeRs)
     logs = []
     code = qt_main._cli_build_amcsd_cache(["--build-amcsd-cache"], log=logs.append)
     assert code == 1

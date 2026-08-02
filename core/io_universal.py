@@ -12,7 +12,6 @@
 # Public API:
 #   - load_any(path, *, x_key=None, y_key=None, prefer=None, return_meta=False)
 #   - import_xy(path, *, x_key=None, y_key=None, deduplicate=None, ...)
-#   - list_columns(path)
 #   - register_parser(ParserSpec)
 #
 # Canonical keys exposed in meta["canonical_map"] for robust references:
@@ -1013,7 +1012,3 @@ def import_xy(path: str, *, x_key: str | None = None, y_key: str | None = None,
     if deduplicate is not None:
         x, y = _deduplicate_xy(x, y, deduplicate, dedup_round_decimals)
     return x, y, meta
-
-def list_columns(path: str) -> list[str]:
-    df, _ = load_any(path, return_meta=True)
-    return list(df.columns)
