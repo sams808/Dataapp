@@ -6,13 +6,21 @@ rem otherwise be silently bundled - the first unfiltered build was 883 MB
 rem vs 349 MB with these exclusions), then zip dist\PRISM into a single
 rem shareable archive.
 rem
-rem Note: the exe excludes xraylarch; Larch-dependent XAS steps
-rem (normalization/EXAFS) need a Python install + PRISM.bat instead.
+rem Note: the exe excludes xraylarch AND glasspy; Larch-dependent XAS
+rem steps (normalization/EXAFS) and glasspy-dependent GlassNet
+rem predictions both need a Python install + PRISM.bat instead. glasspy
+rem is excluded (not just its torch dependency) because a build that
+rem tried excluding torch/pyarrow/dask directly still silently bundled
+rem torch (246 MB) via a transitive glasspy->lightning PyInstaller hook
+rem that collects torch's compiled .dll files directly, bypassing
+rem --exclude-module torch entirely - excluding glasspy itself removes
+rem the whole causal chain instead of chasing individual transitive deps.
 cd /d "%~dp0"
 
 py -3.11 -m PyInstaller --noconfirm --clean --windowed --name PRISM ^
   --icon assets\prism.ico --add-data "assets;assets" ^
-  --exclude-module larch --exclude-module wx --exclude-module tkinter ^
+  --exclude-module larch --exclude-module glasspy ^
+  --exclude-module wx --exclude-module tkinter ^
   --exclude-module PyQt5 --exclude-module PyQt6 ^
   --exclude-module IPython --exclude-module jupyter --exclude-module nbformat ^
   --exclude-module notebook --exclude-module zmq ^
@@ -21,6 +29,8 @@ py -3.11 -m PyInstaller --noconfirm --clean --windowed --name PRISM ^
   --exclude-module botocore --exclude-module boto3 ^
   --exclude-module h5py --exclude-module lxml ^
   --exclude-module cryptography --exclude-module paramiko ^
+  --exclude-module pyarrow --exclude-module dask ^
+  --exclude-module lightning --exclude-module pytorch_lightning ^
   qt_main.py
 if errorlevel 1 (
   echo Build failed.
