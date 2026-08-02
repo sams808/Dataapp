@@ -12,6 +12,8 @@ exercising the real staged pipeline end to end, not a shortcut version.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -20,7 +22,7 @@ from saxs.core.composite_staged import fit_staged
 from saxs.core.curve import Curve
 from saxs.core.loader import load_curve
 
-FIXTURE_PATH = __file__.rsplit("\\", 1)[0] + r"\fixtures\P5Bi8-12__corr.dat"
+FIXTURE_PATH = str(Path(__file__).parent / "fixtures" / "P5Bi8-12__corr.dat")
 
 N_CURVES = 20
 MULTISTART_N = 3  # reduced from the production default (8) for test runtime

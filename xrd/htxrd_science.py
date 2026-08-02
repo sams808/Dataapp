@@ -22,6 +22,7 @@ Rietveld — see the M20 milestone text for the reasoning):
 """
 from __future__ import annotations
 
+import ntpath
 import os
 import re
 from dataclasses import dataclass, field
@@ -53,7 +54,13 @@ def ramp_value_from_template(filename: str, template: str) -> Optional[float]:
     'NB-LM01MO_100.XRDML' -> 100.0). Matching is case-insensitive and only
     against the basename. Returns None when the filename doesn't fit the
     template or the varying part isn't numeric."""
-    base = os.path.basename(filename)
+    # ntpath (not os.path) deliberately: real usage is always a Windows
+    # path (PRISM is Windows-only), and ntpath.basename() strips both /
+    # and \ regardless of the HOST platform, unlike os.path.basename()
+    # which only strips \ when actually running on Windows -- without
+    # this, a Windows-style path is left un-stripped when this runs on
+    # Linux (e.g. in CI), and the template match silently fails.
+    base = ntpath.basename(filename)
     m = re.search(r"\?+", template)
     if not m:
         return None
