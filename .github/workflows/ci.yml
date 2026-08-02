@@ -35,7 +35,17 @@ jobs:
       - name: Lint (ruff, F + E9)
         run: ruff check --select F,E9 --exclude EXAMPLES --exclude .git .
 
-      - name: Run tests (offscreen Qt platform)
+      # matplotlib's QtAgg backend independently checks for a real X11/
+      # Wayland display (via _c_internal_utils.display_is_valid()) before
+      # allowing matplotlib.use("QtAgg") to succeed -- unrelated to Qt's
+      # own "offscreen" platform plugin, and this runner has no display
+      # server at all. xvfb-run provides a virtual one so that check
+      # passes; QT_QPA_PLATFORM=offscreen still keeps Qt itself from
+      # trying to actually render through it.
+      - name: Install Xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Run tests (offscreen Qt platform, under a virtual X display)
         env:
           QT_QPA_PLATFORM: offscreen
-        run: pytest -q
+        run: xvfb-run -a pytest -q
