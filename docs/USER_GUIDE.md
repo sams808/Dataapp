@@ -102,6 +102,15 @@ Pick X/Y/dY channels, compute Tg three ways (double tangent, parallel
 tangent, |dY| max) — the result panel says whether the methods agree.
 "Calculs" integrates or finds extrema over a range; Batch processes a folder.
 
+The **°C / K switch** next to the X field converts, not just relabels: the
+plotted axis, the Tg window, every baseline/point field, and any already-
+computed Tg all shift by the same 273.15 in place, so a window you set in
+°C stays the same physical window after switching to K. It's disabled
+whenever the current X column isn't a recognized temperature axis (e.g.
+Time), so switching units never silently reinterprets an unrelated axis.
+Exported CSVs (single or batch) record a `temp_unit` column so results
+stay unambiguous regardless of which unit was active when exported.
+
 ## Raman ID (RRUFF)
 
 Auto-find (or type) your spectrum's peak positions, then **Find matches**:

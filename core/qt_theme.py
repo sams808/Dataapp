@@ -131,6 +131,31 @@ def build_stylesheet(palette: dict = PALETTE) -> str:
     QPushButton#Primary:hover {{
         background: {p['accent_hover']};
     }}
+    QPushButton#UnitSwitchLeft, QPushButton#UnitSwitchRight {{
+        padding: 5px 16px;
+        font-weight: 600;
+    }}
+    QPushButton#UnitSwitchLeft {{
+        border-top-right-radius: 0px;
+        border-bottom-right-radius: 0px;
+        border-right: none;
+    }}
+    QPushButton#UnitSwitchRight {{
+        border-top-left-radius: 0px;
+        border-bottom-left-radius: 0px;
+    }}
+    QPushButton#UnitSwitchLeft:checked, QPushButton#UnitSwitchRight:checked {{
+        background: {p['accent']};
+        color: {p['accent_ink']};
+        border-color: {p['accent_hover']};
+    }}
+    QPushButton#UnitSwitchLeft:hover:!checked, QPushButton#UnitSwitchRight:hover:!checked {{
+        background: {p['selection_bg']};
+    }}
+    QPushButton#UnitSwitchLeft:disabled, QPushButton#UnitSwitchRight:disabled {{
+        color: {p['muted']};
+        background: {p['bg_alt']};
+    }}
     QTableView, QTreeView {{
         background: {p['card']};
         border: 1px solid {p['border']};

@@ -110,6 +110,103 @@ def test_calc_integrate_and_find_max(qtbot, dta_example_path):
     assert "Max" in widget.calc_result_label.text()
 
 
+def test_temp_unit_switch_defaults_to_celsius_and_enables_for_temperature_x(qtbot, dta_example_path):
+    widget = DtaWorkspace(records=[_dta_record(dta_example_path)])
+    qtbot.addWidget(widget)
+    assert widget.temp_c_btn.isChecked()
+    assert not widget.temp_k_btn.isChecked()
+    # The bundled example's default X is a recognized temperature column
+    # (asserted by an existing test above), so the switch should be live.
+    assert widget.temp_c_btn.isEnabled()
+    assert widget.temp_k_btn.isEnabled()
+
+
+def test_temp_unit_switch_disables_for_non_temperature_x(qtbot, dta_example_path):
+    widget = DtaWorkspace(records=[_dta_record(dta_example_path)])
+    qtbot.addWidget(widget)
+    temperature_col = widget.x_combo.currentText()  # the default X, a real temperature column
+
+    widget.x_combo.setCurrentText("Time (min)")  # plain ASCII, present verbatim in every DTA export
+    qtbot.wait(20)
+    assert not widget.temp_c_btn.isEnabled()
+    assert not widget.temp_k_btn.isEnabled()
+
+    widget.x_combo.setCurrentText(temperature_col)
+    qtbot.wait(20)
+    assert widget.temp_c_btn.isEnabled()
+    assert widget.temp_k_btn.isEnabled()
+
+
+def test_temp_unit_switch_converts_axis_window_and_results_to_kelvin(qtbot, dta_example_path):
+    """Switching to K must shift the plotted axis data, the Tg window
+    fields, and (since a result already exists) the recomputed Tg values
+    all by the same +273.15 -- not just relabel what's already there."""
+    widget = DtaWorkspace(records=[_dta_record(dta_example_path)])
+    qtbot.addWidget(widget)
+    widget._compute()
+
+    td_c = widget.res_double.tg
+    tp_c = widget.res_parallel.tg
+    tx_c = widget.tg_deriv
+    xmin_c = float(widget.xmin_edit.text())
+    xmax_c = float(widget.xmax_edit.text())
+    x_c = widget._x.copy()
+
+    widget.temp_k_btn.setChecked(True)
+    qtbot.wait(20)
+
+    assert widget._temp_unit() == "K"
+    assert float(widget.xmin_edit.text()) == pytest.approx(xmin_c + 273.15, abs=1e-6)
+    assert float(widget.xmax_edit.text()) == pytest.approx(xmax_c + 273.15, abs=1e-6)
+    # Recomputed automatically because a result already existed.
+    assert widget.res_double.tg == pytest.approx(td_c + 273.15, abs=1e-4)
+    assert widget.res_parallel.tg == pytest.approx(tp_c + 273.15, abs=1e-4)
+    assert widget.tg_deriv == pytest.approx(tx_c + 273.15, abs=1e-3)
+    assert widget._x == pytest.approx(x_c + 273.15, abs=1e-6)
+    assert "K" in widget.result_label.text()
+    assert widget.plot.ax.get_xlabel() == "Temperature (K)"
+
+
+def test_temp_unit_switch_round_trip_returns_exact_original_values(qtbot, dta_example_path):
+    """Switching to K and back to °C must reproduce the pinned known-good
+    values exactly (within float tolerance) -- a round trip through the
+    conversion must not drift."""
+    widget = DtaWorkspace(records=[_dta_record(dta_example_path)])
+    qtbot.addWidget(widget)
+    widget._compute()
+
+    widget.temp_k_btn.setChecked(True)
+    qtbot.wait(20)
+    widget.temp_c_btn.setChecked(True)
+    qtbot.wait(20)
+
+    assert widget._temp_unit() == "°C"
+    assert widget.res_double.tg == pytest.approx(354.4666531002641, abs=1e-4)
+    assert widget.res_parallel.tg == pytest.approx(354.51135373692597, abs=1e-4)
+    assert widget.tg_deriv == pytest.approx(357.6214, abs=1e-3)
+
+
+def test_temp_unit_switch_leaves_non_temperature_calc_range_untouched(qtbot, dta_example_path):
+    """A Calculs range set against a non-temperature X (here, using the
+    derivative d/dTime) must not get shifted by a °C/K toggle -- only the
+    fields that actually window a recognized temperature axis should move."""
+    widget = DtaWorkspace(records=[_dta_record(dta_example_path)])
+    qtbot.addWidget(widget)
+
+    widget.calc_use_deriv_check.setChecked(True)
+    widget.calc_deriv_x_combo.setCurrentText("Time (min)")
+    widget.calc_xmin_edit.setText("10")
+    widget.calc_xmax_edit.setText("20")
+
+    widget.temp_k_btn.setChecked(True)
+    qtbot.wait(20)
+
+    assert float(widget.calc_xmin_edit.text()) == pytest.approx(10.0)
+    assert float(widget.calc_xmax_edit.text()) == pytest.approx(20.0)
+    # The main Tg window (a real temperature axis) still converts normally.
+    assert float(widget.xmin_edit.text()) == pytest.approx(623.15, abs=1e-2)
+
+
 def test_shell_dta_page_picks_up_library_records(qtbot, dta_example_path):
     window = PrismMainWindow()
     qtbot.addWidget(window)

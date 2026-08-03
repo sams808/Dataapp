@@ -34,11 +34,37 @@ from core.qt_widgets import to_float as _to_float
 
 def _unit_from_col(col: str) -> str:
     cl = col.lower()
+    # Kelvin markers are checked FIRST and returned immediately: the older
+    # ordering checked "temp"/"temperature" first, which matches a column
+    # literally named "Temperature (K)" too and always misclassified it as
+    # °C before the Kelvin branch ever ran. Real DTA exports are almost
+    # always °C (TA Instruments' own convention, see io_universal.py's
+    # canonical "T_C" key), so °C stays the fallback for an ambiguous
+    # generic "Temp"/"Temperature" name with no explicit unit marker.
+    if "kelvin" in cl or "(k)" in cl or cl.strip().endswith(" k"):
+        return "K"
     if "°c" in cl or "temperature" in cl or "temp" in cl or "c)" in cl:
         return "°C"
-    if "kelvin" in cl or ("temp" in cl and "k" in cl):
-        return "K"
     return ""
+
+
+def _shift_temperature(value, old_unit: str, new_unit: str):
+    """Convert a scalar float or ndarray from old_unit to new_unit ('°C'
+    or 'K'). A no-op when the units already match or either is blank/
+    unrecognized. Kelvin and Celsius differ only by a constant +273.15
+    offset, so this is the one place that offset is applied -- everything
+    else (axis data, window/baseline fields, exported numbers) routes
+    through this so a switch can never apply it inconsistently in two
+    places. Deliberately NOT used for differences/spreads (e.g. the Tg
+    methods' agreement threshold): a difference in °C already equals the
+    same difference in K, since the constant offset cancels out."""
+    if not old_unit or not new_unit or old_unit == new_unit:
+        return value
+    if old_unit == "°C" and new_unit == "K":
+        return value + 273.15
+    if old_unit == "K" and new_unit == "°C":
+        return value - 273.15
+    return value
 
 
 class DtaWorkspace(QWidget):
@@ -64,6 +90,9 @@ class DtaWorkspace(QWidget):
         self.res_double: Optional[TgDoubleTangentResult] = None
         self.res_parallel: Optional[TgParallelTangentResult] = None
         self.tg_deriv: Optional[float] = None
+        self._prev_temp_unit = "°C"  # tracked so the toggle handler always
+        # knows the OLD unit to convert range fields from, regardless of
+        # which of the two buttons Qt happens to signal.
 
         self._build_ui()
         if self.records:
@@ -151,6 +180,34 @@ class DtaWorkspace(QWidget):
         self.y_combo.currentTextChanged.connect(self._on_y_change)
         self.dy_combo.currentTextChanged.connect(self._refresh_plot)
         plot_form.addRow("X", self.x_combo)
+
+        unit_row = QHBoxLayout()
+        self.temp_c_btn = QPushButton("°C")
+        self.temp_k_btn = QPushButton("K")
+        switch_tip = (
+            "Switch the temperature axis, Tg results, and window/baseline "
+            "ranges between °C and K (applies workspace-wide, including the "
+            "Calculs tab). Existing range values and any computed Tg are "
+            "converted in place, not reinterpreted. Disabled when the "
+            "current X column isn't a recognized temperature axis."
+        )
+        for btn, obj_name in ((self.temp_c_btn, "UnitSwitchLeft"), (self.temp_k_btn, "UnitSwitchRight")):
+            btn.setCheckable(True)
+            btn.setObjectName(obj_name)
+            btn.setToolTip(switch_tip)
+            btn.setEnabled(False)  # enabled once a recognized temperature column is loaded
+        self.temp_c_btn.setChecked(True)
+        self.temp_unit_group = QButtonGroup(self)
+        self.temp_unit_group.setExclusive(True)
+        self.temp_unit_group.addButton(self.temp_c_btn, 0)
+        self.temp_unit_group.addButton(self.temp_k_btn, 1)
+        self.temp_c_btn.toggled.connect(self._on_temp_unit_toggled)
+        self.temp_k_btn.toggled.connect(self._on_temp_unit_toggled)
+        unit_row.addWidget(self.temp_c_btn)
+        unit_row.addWidget(self.temp_k_btn)
+        unit_row.addStretch(1)
+        plot_form.addRow("Temp. unit", unit_row)
+
         plot_form.addRow("Y", self.y_combo)
         plot_form.addRow("dY source", self.dy_combo)
 
@@ -447,10 +504,10 @@ class DtaWorkspace(QWidget):
         self.calc_y_combo.setCurrentText(ydef)
         self.calc_deriv_x_combo.setCurrentText(xdef)
 
-        self.xmin_edit.setText("350")
-        self.xmax_edit.setText("700")
-        self.calc_xmin_edit.setText("350")
-        self.calc_xmax_edit.setText("700")
+        self.xmin_edit.setText(self._format_temp_default(350.0))
+        self.xmax_edit.setText(self._format_temp_default(700.0))
+        self.calc_xmin_edit.setText(self._format_temp_default(350.0))
+        self.calc_xmax_edit.setText(self._format_temp_default(700.0))
 
         sample = self.header.get("Sample", self.path.stem if self.path else display_title)
         suffix = self.path.name if self.path else display_title
@@ -497,6 +554,89 @@ class DtaWorkspace(QWidget):
     def _smooth_derivative_enabled(self) -> bool:
         return self.smooth_group.checkedId() == 1
 
+    # ---- Temperature unit switch --------------------------------------
+
+    def _temp_unit(self) -> str:
+        return "K" if self.temp_unit_group.checkedId() == 1 else "°C"
+
+    def _convert_x_to_display(self, x: np.ndarray, x_col: str) -> np.ndarray:
+        """Convert x (as read straight from the dataframe, in whatever unit
+        the column's own header claims) to the currently selected display
+        unit. A no-op for any column _unit_from_col doesn't recognize as
+        temperature, so switching °C/K never touches a Time or other
+        non-temperature axis even if it happens to be the current X."""
+        native = _unit_from_col(x_col)
+        if not native:
+            return x
+        return _shift_temperature(x, native, self._temp_unit())
+
+    def _result_unit_label(self, x_col: str) -> str:
+        """Unit suffix for displayed/exported numbers: the switch's current
+        setting for a recognized temperature column, otherwise whatever
+        _unit_from_col already returns (typically '' for e.g. Time)."""
+        native = _unit_from_col(x_col)
+        return self._temp_unit() if native else native
+
+    def _display_x_label(self, x_col: str) -> str:
+        if not _unit_from_col(x_col):
+            return x_col
+        return f"Temperature ({self._temp_unit()})"
+
+    def _format_temp_default(self, celsius_value: float) -> str:
+        """Tg-window/Calculs-range defaults are authored in °C (the
+        canonical DTA unit); convert to whatever unit is currently active
+        so re-loading a file while working in Kelvin doesn't reset the
+        window to a physically wrong value."""
+        v = _shift_temperature(celsius_value, "°C", self._temp_unit())
+        return f"{v:.6g}"
+
+    def _update_temp_switch_enabled(self, x_col: str) -> None:
+        enabled = bool(_unit_from_col(x_col))
+        self.temp_c_btn.setEnabled(enabled)
+        self.temp_k_btn.setEnabled(enabled)
+
+    def _convert_range_fields(self, old_unit: str, new_unit: str) -> None:
+        """Keep every typed range/point field physically meaningful across
+        a unit switch, converting in place rather than leaving the same
+        typed number to mean something different. Only touches a group of
+        fields when the X column that group actually windows is currently
+        recognized as temperature -- so switching units while X is, say,
+        Time never reinterprets a time window as degrees."""
+        def _shift_field(edit: QLineEdit) -> None:
+            v = _to_float(edit.text())
+            if v is not None:
+                edit.setText(f"{_shift_temperature(v, old_unit, new_unit):.6g}")
+
+        if _unit_from_col(self.x_combo.currentText()):
+            for edit in (
+                self.xmin_edit, self.xmax_edit,
+                self.low_min_edit, self.low_max_edit, self.low_point_edit,
+                self.slope_min_edit, self.slope_max_edit,
+                self.high_min_edit, self.high_max_edit, self.high_point_edit,
+            ):
+                _shift_field(edit)
+
+        calc_x_col = self.calc_deriv_x_combo.currentText() if self.calc_use_deriv_check.isChecked() else self.x_combo.currentText()
+        if _unit_from_col(calc_x_col):
+            _shift_field(self.calc_xmin_edit)
+            _shift_field(self.calc_xmax_edit)
+
+    def _on_temp_unit_toggled(self, checked: bool) -> None:
+        if not checked:
+            return  # exclusive group fires toggled(False) on the outgoing button too; act once
+        new_unit = self._temp_unit()
+        if new_unit == self._prev_temp_unit:
+            return
+        old_unit = self._prev_temp_unit
+        self._prev_temp_unit = new_unit
+        self._convert_range_fields(old_unit, new_unit)
+        if self.df is None:
+            return
+        if self.res_double is not None or self.res_parallel is not None or self.tg_deriv is not None:
+            self._compute()
+        else:
+            self._refresh_plot()
+
     def _get_window(self) -> Tuple[float, float]:
         a = _to_float(self.xmin_edit.text())
         b = _to_float(self.xmax_edit.text())
@@ -514,6 +654,7 @@ class DtaWorkspace(QWidget):
             raise ValueError("Pick X and Y columns first.")
 
         x = pd.to_numeric(self.df[x_col], errors="coerce").to_numpy(dtype=float)
+        x = self._convert_x_to_display(x, x_col)
         y = pd.to_numeric(self.df[y_col], errors="coerce").to_numpy(dtype=float)
         if dy_sel and dy_sel != "(same)" and dy_sel in self.df.columns:
             y_dy = pd.to_numeric(self.df[dy_sel], errors="coerce").to_numpy(dtype=float)
@@ -577,7 +718,7 @@ class DtaWorkspace(QWidget):
             except Exception:
                 self.res_parallel = None
 
-            unit = _unit_from_col(x_col)
+            unit = self._result_unit_label(x_col)
             td = self.res_double.tg if self.res_double is not None else float("nan")
             tp = self.res_parallel.tg if self.res_parallel is not None else float("nan")
             tx = self.tg_deriv if self.tg_deriv is not None else float("nan")
@@ -630,6 +771,7 @@ class DtaWorkspace(QWidget):
         except Exception:
             return
         self._x, self._y = x, y
+        self._update_temp_switch_enabled(x_col)
 
         if self.ax2 is not None:
             try:
@@ -641,7 +783,7 @@ class DtaWorkspace(QWidget):
         ax = self.plot.ax
         ax.clear()
         ax.plot(x, y, linewidth=2.0)
-        ax.set_xlabel(x_col)
+        ax.set_xlabel(self._display_x_label(x_col))
         ax.set_ylabel(y_col + (" (inv)" if self.invert_y_check.isChecked() else ""))
         sample = self.header.get("Sample", self.path.stem if self.path else "")
         ax.set_title(sample)
@@ -678,7 +820,7 @@ class DtaWorkspace(QWidget):
         x, y = self._x, self._y
         ax = self.plot.ax
         explicit = self.explicit_check.isChecked()
-        unit = _unit_from_col(self.x_combo.currentText())
+        unit = self._result_unit_label(self.x_combo.currentText())
         method = ("double", "parallel", "deriv")[self.method_group.checkedId()] if self.method_group.checkedId() >= 0 else "parallel"
 
         td = self.res_double.tg if self.res_double is not None else float("nan")
@@ -752,6 +894,7 @@ class DtaWorkspace(QWidget):
         x_col = x_col or self.x_combo.currentText()
 
         x = pd.to_numeric(self.df[x_col], errors="coerce").to_numpy(dtype=float)
+        x = self._convert_x_to_display(x, x_col)
         y = pd.to_numeric(self.df[y_col], errors="coerce").to_numpy(dtype=float)
         m = np.isfinite(x) & np.isfinite(y)
         x, y = x[m], y[m]
@@ -862,6 +1005,7 @@ class DtaWorkspace(QWidget):
         return dict(
             file=str(self.path) if self.path else "", sample=sample, x_col=x_col, y_col=y_col,
             dy_source=(y_col if dy_col == "(same)" else dy_col),
+            temp_unit=self._result_unit_label(x_col),
             window_min=xmin, window_max=xmax, smooth_derivative=int(smooth_d),
             low_mode=low_mode, low_range=_fmt_rng(bp.low_range),
             low_point_x=("" if bp.low_point is None else float(bp.low_point)),
@@ -924,6 +1068,7 @@ class DtaWorkspace(QWidget):
                     raise ValueError(f"Missing columns: {x_name} or {y_name}")
 
                 x = pd.to_numeric(df[x_col], errors="coerce").to_numpy(dtype=float)
+                x = self._convert_x_to_display(x, x_col)
                 y = pd.to_numeric(df[y_col], errors="coerce").to_numpy(dtype=float)
                 if dy_sel and dy_sel != "(same)" and dy_sel in df.columns:
                     y_dy = pd.to_numeric(df[dy_sel], errors="coerce").to_numpy(dtype=float)
@@ -969,6 +1114,7 @@ class DtaWorkspace(QWidget):
                 rows.append(dict(
                     file=str(p), sample=sample, x_col=x_col, y_col=y_col,
                     dy_source=(y_col if dy_col == "(same)" else dy_col),
+                    temp_unit=self._result_unit_label(x_col),
                     window_min=xmin, window_max=xmax, smooth_derivative=int(smooth_d),
                     low_mode=(rp.low_mode if rp is not None else default_low_mode),
                     low_range=_fmt_rng(bp.low_range),
