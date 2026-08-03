@@ -147,6 +147,16 @@ class ObjectListMixin:
         self._fill_list(self.norm_mu_list, mu_names)
         self._fill_list(self.edge_list, all_names)
         self._fill_list(self.analysis_list, all_names)
+        self._fill_list(self.lcf_targets_list, all_names)
+        self._fill_list(self.lcf_refs_list, all_names)
+        self._refresh_lcf_required_list()
+
+    def _refresh_lcf_required_list(self) -> None:
+        # "Always include" options are limited to whatever's currently
+        # selected as a reference -- keeps it from listing names that
+        # can't actually be used as a required reference in this run.
+        selected_refs = [item.text() for item in self.lcf_refs_list.selectedItems()]
+        self._fill_list(self.lcf_required_list, selected_refs)
 
     @staticmethod
     def _fill_list(listwidget: QListWidget, names: List[str]) -> None:

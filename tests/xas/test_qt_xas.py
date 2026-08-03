@@ -429,3 +429,103 @@ def test_analysis_sum_selected_creates_summed_object(qtbot):
     assert summed is not None
     assert np.allclose(summed.y, 4.0)
     assert summed.history[-1].name == "merge_sum"
+
+
+def _lcf_synthetic_pool(seed=0):
+    """3 references + 2 targets, each target an exact 2-reference mix, on
+    the same energy grid a real normalized.csv import would carry."""
+    rng = np.random.default_rng(seed)
+    energy = np.linspace(0.0, 100.0, 120)
+    refs = {}
+    for i in range(3):
+        centers = rng.uniform(10, 90, size=3)
+        widths = rng.uniform(3, 10, size=3)
+        heights = rng.uniform(0.5, 1.5, size=3)
+        y = np.zeros_like(energy)
+        for c, wid, h in zip(centers, widths, heights):
+            y += h * np.exp(-((energy - c) ** 2) / (2 * wid ** 2))
+        refs[f"ref{i}"] = y
+    targets = {
+        "sampleA": 0.6 * refs["ref0"] + 0.4 * refs["ref1"],
+        "sampleB": 0.3 * refs["ref1"] + 0.7 * refs["ref2"],
+    }
+    return energy, refs, targets
+
+
+def test_batch_lcf_tab_runs_and_populates_summary_table(qtbot):
+    widget = XasWorkspace()
+    qtbot.addWidget(widget)
+    energy, refs, targets = _lcf_synthetic_pool()
+
+    for name, y in refs.items():
+        widget.store.add(Spectrum(sid=_uid("sp"), name=name, kind="flat", energy=energy, y=y))
+    for name, y in targets.items():
+        widget.store.add(Spectrum(sid=_uid("sp"), name=name, kind="flat", energy=energy, y=y))
+    widget._refresh_all()
+
+    for i in range(widget.lcf_targets_list.count()):
+        if widget.lcf_targets_list.item(i).text() in targets:
+            widget.lcf_targets_list.item(i).setSelected(True)
+    for i in range(widget.lcf_refs_list.count()):
+        if widget.lcf_refs_list.item(i).text() in refs:
+            widget.lcf_refs_list.item(i).setSelected(True)
+
+    widget.lcf_min_components_spin.setValue(2)
+    widget.lcf_max_components_spin.setValue(2)
+    widget.run_batch_lcf_clicked()
+
+    assert widget.lcf_summary_table.rowCount() == 2
+    names_in_table = {widget.lcf_summary_table.item(r, 0).text() for r in range(2)}
+    assert names_in_table == {"sampleA", "sampleB"}
+    for r in range(2):
+        r2 = float(widget.lcf_summary_table.item(r, 2).text())
+        assert r2 > 0.999  # each target is an exact combination of 2 references
+
+    # Selecting a row previews it without error (draws onto the tab's
+    # single persistent PlotWidget axes).
+    widget.lcf_summary_table.selectRow(0)
+    qtbot.wait(20)
+    assert len(widget.lcf_plot.ax.lines) > 0
+
+
+def test_batch_lcf_generate_report_writes_files(qtbot, tmp_path, monkeypatch):
+    widget = XasWorkspace()
+    qtbot.addWidget(widget)
+    energy, refs, targets = _lcf_synthetic_pool(seed=1)
+
+    for name, y in refs.items():
+        widget.store.add(Spectrum(sid=_uid("sp"), name=name, kind="flat", energy=energy, y=y))
+    for name, y in targets.items():
+        widget.store.add(Spectrum(sid=_uid("sp"), name=name, kind="flat", energy=energy, y=y))
+    widget._refresh_all()
+
+    for i in range(widget.lcf_targets_list.count()):
+        widget.lcf_targets_list.item(i).setSelected(True)
+    for i in range(widget.lcf_refs_list.count()):
+        if widget.lcf_refs_list.item(i).text() in refs:
+            widget.lcf_refs_list.item(i).setSelected(True)
+    widget.lcf_min_components_spin.setValue(2)
+    widget.lcf_max_components_spin.setValue(2)
+    widget.run_batch_lcf_clicked()
+
+    monkeypatch.setattr("xas._qt_xas_lcf_batch.QFileDialog.getExistingDirectory", staticmethod(lambda *a, **k: str(tmp_path)))
+    widget.generate_batch_lcf_report_clicked()
+
+    assert (tmp_path / "batch_lcf_report.pdf").exists()
+    assert (tmp_path / "batch_lcf_report.md").exists()
+    md_text = (tmp_path / "batch_lcf_report.md").read_text(encoding="utf-8")
+    assert "## sampleA" in md_text and "## sampleB" in md_text
+
+
+def test_batch_lcf_required_refs_list_tracks_ref_selection(qtbot):
+    widget = XasWorkspace()
+    qtbot.addWidget(widget)
+    energy, refs, targets = _lcf_synthetic_pool(seed=2)
+    for name, y in refs.items():
+        widget.store.add(Spectrum(sid=_uid("sp"), name=name, kind="flat", energy=energy, y=y))
+    widget._refresh_all()
+
+    assert widget.lcf_required_list.count() == 0  # nothing selected as a reference yet
+    for i in range(widget.lcf_refs_list.count()):
+        widget.lcf_refs_list.item(i).setSelected(True)
+    assert widget.lcf_required_list.count() == len(refs)

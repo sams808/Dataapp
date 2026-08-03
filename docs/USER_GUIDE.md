@@ -65,11 +65,36 @@ them when quoting true FWHM.
 ## XAS
 
 Import EasyXAFS ZIPs, CSVs, or Athena `.prj` from the workspace's own
-buttons. Tabs follow the workflow: Pre-processing (smoothing, Bragg
+buttons (CSV import recognizes an already-normalized `flat`/`norm` column,
+so a previously-exported or externally-processed normalized spectrum loads
+straight in). Tabs follow the workflow: Pre-processing (smoothing, Bragg
 angle→energy correction, click-based tie-point alignment) → μ(E) Builder
-(with deglitching) → Normalization / EXAFS (Larch) → Analysis (average or sum
-repeat scans, difference, linear-combination fitting, PCA species count) →
-Export (Athena formats). Importing an Athena `.prj` needs no Larch.
+(deglitch: noise-calibrated by default, or the older rolling z-score) →
+Normalization / EXAFS (Larch; the FT window (kmin/kmax) and autobk's own
+background-fit range (bkg kmax) are independent — leave bkg kmax blank to
+use the old shared-range behavior, or widen it past the FT window to fit
+the background spline over more data than the FT trusts, standard Athena
+convention) → Analysis (average or sum repeat scans, difference, single
+linear-combination fit, PCA species count) → Batch LCF (below) → Export
+(Athena formats). Importing an Athena `.prj` needs no Larch.
+
+### Batch LCF
+
+Combinatorial linear-combination fitting across many samples at once —
+distinct from Analysis's single-fit LCF, which fits one target against one
+fixed set of references you pick. Select your imported samples as
+**targets** and your imported standards as **references**, set a component
+count range (e.g. 2–3) and weight bounds, optionally require specific
+references to always be included, then **Run batch LCF**: every target gets
+fit against *every combination* of references in that size range, so which
+combination actually explains each spectrum best doesn't have to be
+guessed in advance. The summary table shows each target's best combination;
+click a row to preview it. **Generate report (PDF + MD)** writes one
+multi-page PDF and one Markdown file for the whole batch — two pages per
+sample (the best-fit overlay with residual, then a stats page: best-fit
+weight bar chart, a rank-vs-metric plot showing how close the runner-up
+combinations came, and the full ranking table sorted by R², RMS, or reduced
+χ²).
 
 ## DTA / Thermal
 
