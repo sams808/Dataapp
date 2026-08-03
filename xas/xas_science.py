@@ -751,6 +751,18 @@ def _extract_energy_angle_signal(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarr
         raise ValueError("Could not infer Energy(eV) column.")
     a_col = _guess_col(df.columns, [r"angle.*deg", r"\bangle\b", r"\btheta\b", r"bragg"])
     s_col = _guess_col(df.columns, [r"roi.*countsperlive", r"roi.*c/s", r"roi.*counts"])
+    if s_col is None:
+        # Already-normalized exports (this app's own normalize_selected(),
+        # or the standalone xas_pipeline's normalized.csv) carry "flat"/
+        # "norm" columns alongside "energy" but nothing ROI-shaped -- match
+        # those explicitly (flat preferred: it's the flattened,
+        # background-subtracted quantity Athena/Larch itself treats as the
+        # normalized result, same convention as `group.flat`) before
+        # falling through to the generic numeric-column guess below, which
+        # has no signal for either name and would otherwise just grab
+        # whichever numeric column happens to come first in the file
+        # (e.g. "norm" ahead of "flat" purely by column order).
+        s_col = _guess_col(df.columns, [r"^flat$", r"^norm$"])
 
     if s_col is None:
         numeric_cols = [str(c) for c in df.columns if np.isfinite(pd.to_numeric(df[c], errors="coerce").to_numpy(float)).mean() > 0.8]
