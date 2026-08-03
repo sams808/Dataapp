@@ -619,24 +619,6 @@ def difference_spectra(a_energy: np.ndarray, a_y: np.ndarray, b_energy: np.ndarr
     return b_interp, diff
 
 
-def linear_combination_fit(target_energy: np.ndarray, target_y: np.ndarray,
-                           refs: List[Tuple[np.ndarray, np.ndarray]]) -> Dict[str, Any]:
-    """Athena-style linear combination fitting: fit `target` as a
-    non-negative weighted sum of `refs` (each interpolated onto
-    `target_energy` first), via NNLS. Returns weights, the fitted curve,
-    and R²."""
-    from scipy.optimize import nnls
-
-    target_y = np.asarray(target_y, float)
-    A = np.column_stack([_interp_to_grid(e, y, target_energy) for e, y in refs])
-    weights, residual_norm = nnls(A, target_y)
-    fit_y = A @ weights
-    ss_res = float(np.sum((target_y - fit_y) ** 2))
-    ss_tot = float(np.sum((target_y - np.mean(target_y)) ** 2))
-    r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-30 else float("nan")
-    return {"weights": weights, "fit_y": fit_y, "r2": r2, "residual_norm": float(residual_norm)}
-
-
 # =====================================================================
 # Data models — session level (SpectrumStore) and single-dataset
 # (XASData/Bundle, the layer main.py's import buttons talk to)

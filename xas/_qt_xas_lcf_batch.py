@@ -1,15 +1,23 @@
 """
 xas/_qt_xas_lcf_batch.py — internal implementation detail of qt_xas.py:
-XasWorkspace's Batch LCF tab (combinatorial linear combination fitting
-across many samples at once, with a PDF+MD report). Mixed into
-XasWorkspace, not meant to be used standalone.
+XasWorkspace's LCF tab (combinatorial linear combination fitting, with an
+optional PDF+MD report). Mixed into XasWorkspace, not meant to be used
+standalone. This is the workspace's only linear-combination-fitting tool
+-- an earlier, simpler single-fit LCF button on the Analysis tab (plain
+NNLS, one fixed reference set) was removed once this tab's combinatorial
+engine proved to fully subsume it (see qt_xas.py's module docstring).
 
 Targets and references are both selected from the SAME shared object
-list every other tab reads from (self.store) -- same convention as the
-Analysis tab's single-fit LCF, so "import a lot of normalized spectra"
-just means importing them via the existing CSV.../ZIP... buttons like
-any other spectra, then picking which ones are targets vs. references
-here.
+list every other tab reads from (self.store), so "import a lot of
+normalized spectra" just means importing them via the existing
+CSV.../ZIP... buttons like any other spectra, then picking which ones
+are targets vs. references here. A one-off fit against a fixed reference
+set (the old Analysis-tab use case) still works exactly as before: pick
+one target, select exactly the references you want, and set both
+component-count spinners to that same count so only one combination is
+tried; the summary table + preview plot give the same immediate,
+in-workspace feedback the old button did, without requiring a saved
+report (Generate report… is a separate, optional step).
 
 Tuning controls (align e0, per-reference weight bounds, fit range) were
 added after a real-data review found Bi_metal picking up a substantial,

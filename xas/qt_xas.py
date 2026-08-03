@@ -6,19 +6,25 @@ qt_models.SpectrumLibrary which replaced main.py's four-parallel-list
 anti-pattern from scratch).
 
 XasWorkspace itself is a slim shell: its 9 tabs (Preview, Pre-processing,
-μ(E) Builder, Normalization/EXAFS, Analysis, Batch LCF, Tools, Export,
+μ(E) Builder, Normalization/EXAFS, Analysis, LCF, Tools, Export,
 Sample mass) plus object-list management each live in their own
 _qt_xas_*.py mixin module, mixed together here via multiple inheritance
 so every method still shares one `self` (store, selected_sid, widgets)
 exactly as before the split — only the file layout changed, not the
 behavior.
 
-Batch LCF (combinatorial linear combination fitting across many samples
-at once, ranked and reported to PDF+MD) is a distinct tool from
-Analysis's single-fit LCF, not a replacement for it -- kept separate
-since the two have very different UX (one target/one fit reviewed
-interactively vs. many targets fit against every reference combination
-and ranked, meant to run mostly unattended before reading the report).
+LCF (combinatorial linear combination fitting, ranked and optionally
+reported to PDF+MD) is the one linear-combination-fitting tool in this
+workspace. An earlier version of this app also had a single-fit LCF button
+on the Analysis tab (plain NNLS, one fixed set of references); it was
+removed once real use showed the combinatorial engine here fully subsumes
+it -- picking one target and setting min_components == max_components ==
+(number of selected references) reproduces that old single fit exactly,
+plus adds weight bounds, e0 alignment, and fit-range restriction the old
+button never had. The tab is still implemented in _qt_xas_lcf_batch.py /
+LcfBatchTabMixin (accurate to how it works: even a "single fit" here is
+the batch/combinatorial engine run with one target and one combination),
+just labeled plainly as "LCF" since it's no longer one of two choices.
 
 Core slice ported faithfully from xas_processing_v10.py's XASUltimateApp:
 object list (import ZIP/CSV/.prj, rename/duplicate/delete/export), Preview,
@@ -41,8 +47,9 @@ already and isn't a drop-in replacement for that).
 Athena-inspired additions (new "Analysis" tab, cheap/self-contained ones
 only — PCA needs a new scikit-learn dependency better co-scoped with M16;
 self-absorption correction is a substantial standalone physics feature):
-merge/average repeat scans, difference spectra, linear combination fitting
-(NNLS-based, 2+ references).
+merge/average repeat scans, difference spectra. (Linear combination
+fitting also started here, NNLS-based/2-references-only, but was later
+superseded by the dedicated LCF tab -- see that tab's own module for why.)
 
 The Pre-processing tab (smoothing preview/apply, Bragg angle/energy
 correction, Mode C interactive click-based feature alignment) and PCA
@@ -130,7 +137,7 @@ class XasWorkspace(QWidget, PreviewTabMixin, PreprocTabMixin, MuTabMixin, NormTa
         self.tabs.addTab(self._build_mu_tab(), "μ(E) Builder")
         self.tabs.addTab(self._build_norm_tab(), "Normalization / EXAFS")
         self.tabs.addTab(self._build_analysis_tab(), "Analysis")
-        self.tabs.addTab(self._build_lcf_batch_tab(), "Batch LCF")
+        self.tabs.addTab(self._build_lcf_batch_tab(), "LCF")
         self.tabs.addTab(self._build_tools_tab(), "Tools")
         self.tabs.addTab(self._build_export_tab(), "Export")
         self.tabs.addTab(self._build_mass_tab(), "Sample mass")

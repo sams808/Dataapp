@@ -173,17 +173,6 @@ def test_difference_spectra_interpolates_and_subtracts():
     assert np.allclose(diff, 3.0)
 
 
-def test_linear_combination_fit_recovers_known_weights():
-    e = np.linspace(0, 10, 100)
-    ref1 = np.sin(e)
-    ref2 = np.cos(e)
-    target = 0.7 * ref1 + 0.3 * ref2
-    out = xs.linear_combination_fit(e, target, [(e, ref1), (e, ref2)])
-    assert out["weights"] == pytest.approx([0.7, 0.3], abs=1e-6)
-    assert out["r2"] == pytest.approx(1.0, abs=1e-6)
-    assert np.allclose(out["fit_y"], target, atol=1e-6)
-
-
 # --------------------------------------------------------------------------
 # M11 fix: compute_mu's deglitch parameters were previously dead (accepted
 # but never used).

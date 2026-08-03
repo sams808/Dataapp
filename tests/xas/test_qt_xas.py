@@ -221,7 +221,16 @@ def test_difference_produces_new_spectrum(qtbot):
     assert np.allclose(diff.y, 3.0)
 
 
-def test_linear_combination_fit_recovers_known_weights(qtbot):
+def test_lcf_tab_reproduces_single_fixed_reference_fit(qtbot):
+    """The Analysis tab used to have its own single-fit LCF button (plain
+    NNLS, one fixed reference set); it was removed once real use showed
+    the LCF tab's combinatorial engine fully subsumes that use case --
+    one target, exactly the references you want selected, and min/max
+    components both set to that same count tries only that one
+    combination. This reproduces the old button's own test case (same
+    references, same 0.7/0.3 weights) through the surviving tab, as a
+    concrete check on that replacement claim rather than just asserting
+    it in a docstring."""
     widget = XasWorkspace()
     qtbot.addWidget(widget)
     energy = np.linspace(0, 100, 100)
@@ -233,18 +242,26 @@ def test_linear_combination_fit_recovers_known_weights(qtbot):
         widget.store.add(sp)
     widget._refresh_all()
 
-    # Order matters: target must be selected LAST.
-    for i in range(widget.analysis_list.count()):
-        item = widget.analysis_list.item(i)
-        if item.text() in ("ref1", "ref2", "target"):
-            item.setSelected(True)
+    for i in range(widget.lcf_targets_list.count()):
+        if widget.lcf_targets_list.item(i).text() == "target":
+            widget.lcf_targets_list.item(i).setSelected(True)
+    for i in range(widget.lcf_refs_list.count()):
+        if widget.lcf_refs_list.item(i).text() in ("ref1", "ref2"):
+            widget.lcf_refs_list.item(i).setSelected(True)
 
-    widget.linear_combination_fit_selected()
+    widget.lcf_min_components_spin.setValue(2)
+    widget.lcf_max_components_spin.setValue(2)
+    widget.run_batch_lcf_clicked()
     qtbot.wait(20)  # let the deferred canvas.draw_idle() complete before teardown
-    fit_sp = widget.store.find_by_name("target_LCFfit")
-    assert fit_sp is not None
-    assert np.allclose(fit_sp.y, target_y, atol=1e-6)
-    assert "R²" in widget.analysis_result_text.toPlainText()
+
+    results = widget._lcf_batch_results["target"]
+    assert len(results) == 1  # only one combination possible: both refs, forced
+    best = results[0]
+    assert set(best.ref_names) == {"ref1", "ref2"}
+    weight_by_name = dict(zip(best.ref_names, best.weights))
+    assert weight_by_name["ref1"] == pytest.approx(0.7, abs=1e-4)
+    assert weight_by_name["ref2"] == pytest.approx(0.3, abs=1e-4)
+    assert best.r2 == pytest.approx(1.0, abs=1e-6)
 
 
 def test_preproc_smoothing_apply_creates_new_object(qtbot):

@@ -74,27 +74,27 @@ Normalization / EXAFS (Larch; the FT window (kmin/kmax) and autobk's own
 background-fit range (bkg kmax) are independent — leave bkg kmax blank to
 use the old shared-range behavior, or widen it past the FT window to fit
 the background spline over more data than the FT trusts, standard Athena
-convention) → Analysis (average or sum repeat scans, difference, single
-linear-combination fit, PCA species count) → Batch LCF (below) → Export
-(Athena formats). Importing an Athena `.prj` needs no Larch.
+convention) → Analysis (average or sum repeat scans, difference, PCA
+species count) → LCF (below) → Export (Athena formats). Importing an
+Athena `.prj` needs no Larch.
 
-### Batch LCF
+### LCF
 
-Combinatorial linear-combination fitting across many samples at once —
-distinct from Analysis's single-fit LCF, which fits one target against one
-fixed set of references you pick. Select your imported samples as
+Combinatorial linear-combination fitting. Select your imported samples as
 **targets** and your imported standards as **references**, set a component
 count range (e.g. 2–3) and weight bounds, optionally require specific
 references to always be included, then **Run batch LCF**: every target gets
 fit against *every combination* of references in that size range, so which
 combination actually explains each spectrum best doesn't have to be
 guessed in advance. The summary table shows each target's best combination;
-click a row to preview it. **Generate report (PDF + MD)** writes one
-multi-page PDF and one Markdown file for the whole batch — two pages per
-sample (the best-fit overlay with residual, then a stats page: best-fit
-weight bar chart, a rank-vs-metric plot showing how close the runner-up
-combinations came, and the full ranking table sorted by R², RMS, or reduced
-χ²).
+click a row to preview it — for a single fit against one fixed reference
+set (no combination search), just select exactly the references you want
+and set both component-count spinners to that same count. **Generate report
+(PDF + MD)** writes one multi-page PDF and one Markdown file for the whole
+batch — two pages per sample (the best-fit overlay with residual, then a
+stats page: best-fit weight bar chart, a rank-vs-metric plot showing how
+close the runner-up combinations came, and the full ranking table sorted by
+R², RMS, or reduced χ²).
 
 ## DTA / Thermal
 

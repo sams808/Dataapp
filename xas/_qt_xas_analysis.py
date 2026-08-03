@@ -1,8 +1,16 @@
 """
 xas/_qt_xas_analysis.py — internal implementation detail of qt_xas.py:
 XasWorkspace's Analysis tab (Athena-inspired additions: merge/average,
-difference spectra, linear combination fitting, PCA). Mixed into
-XasWorkspace, not meant to be used standalone.
+difference spectra, PCA). Mixed into XasWorkspace, not meant to be used
+standalone.
+
+Linear combination fitting used to live here too (a single target vs. one
+fixed set of references, via plain NNLS). It was removed once the LCF tab's
+combinatorial engine made it fully redundant — running the LCF tab with one
+target selected and min_components == max_components == (number of
+references) reproduces the old single-fit behavior exactly, plus gives
+weight bounds, e0 alignment, fit-range restriction, and PDF/MD reporting
+the old button never had. See ._qt_xas_lcf_batch.
 """
 from __future__ import annotations
 
@@ -21,7 +29,6 @@ from xas.xas_science import (
     Spectrum,
     combine_spectra,
     difference_spectra,
-    linear_combination_fit,
 )
 from ._qt_xas_shared import COLORS
 
@@ -53,10 +60,10 @@ class AnalysisTabMixin:
         diff_btn.clicked.connect(self.difference_selected)
         ctrl_layout.addWidget(diff_btn)
 
-        ctrl_layout.addWidget(QLabel("Linear combination fit: last selected = target,\nothers = references"))
-        lcf_btn = QPushButton("Fit linear combination")
-        lcf_btn.clicked.connect(self.linear_combination_fit_selected)
-        ctrl_layout.addWidget(lcf_btn)
+        lcf_pointer = QLabel("Looking for linear combination fitting? See the LCF tab.")
+        lcf_pointer.setStyleSheet("color: #777; font-style: italic;")
+        lcf_pointer.setWordWrap(True)
+        ctrl_layout.addWidget(lcf_pointer)
 
         pca_btn = QPushButton("PCA across selected (species count)")
         pca_btn.clicked.connect(self.pca_selected)
@@ -150,44 +157,6 @@ class AnalysisTabMixin:
         self.analysis_plot.figure.tight_layout()
         self.analysis_plot.canvas.draw_idle()
         self._set_status(f"Difference spectrum → {sp_diff.name}")
-
-    def linear_combination_fit_selected(self) -> None:
-        """Athena-style linear combination fitting: fit the LAST selected
-        spectrum (target) as a non-negative weighted sum of the other
-        selected spectra (references), via NNLS."""
-        specs = self._analysis_selected_spectra()
-        if len(specs) < 3:
-            QMessageBox.warning(self, "Linear combination fit", "Select 2+ references and 1 target (3+ total; target = last selected).")
-            return
-        target = specs[-1]
-        refs = specs[:-1]
-
-        out = linear_combination_fit(target.energy, target.y, [(r.energy, r.y) for r in refs])
-        weights, fit_y, r2 = out["weights"], out["fit_y"], out["r2"]
-
-        lines = [f"Target: {target.name}", f"R² = {r2:.5f}", ""]
-        for r, w_ in zip(refs, weights):
-            lines.append(f"  {r.name}: weight = {w_:.4f}")
-        lines.append(f"\nSum of weights = {sum(weights):.4f} (Athena-style LCF is often constrained to sum to 1; not enforced here, shown for reference)")
-        self.analysis_result_text.setPlainText("\n".join(lines))
-
-        sp_fit = target.copy(new_name=f"{target.name}_LCFfit", new_kind="lcf_fit")
-        sp_fit.y = fit_y
-        sp_fit.history.append(Operation("linear_combination_fit", {"target": target.name, "refs": [r.name for r in refs], "weights": list(map(float, weights)), "r2": r2}))
-        self.store.add(sp_fit)
-        self._refresh_all()
-
-        ax = self.analysis_plot.ax
-        ax.clear()
-        ax.plot(target.energy, target.y, lw=1.3, color="black", label=f"target: {target.name}")
-        ax.plot(target.energy, fit_y, lw=1.5, ls="--", color="red", label="LCF fit")
-        for i, r in enumerate(refs):
-            ax.plot(r.energy, r.y, lw=0.8, alpha=0.4, color=COLORS[i % len(COLORS)], label=r.name)
-        ax.set_xlabel("Energy (eV)"); ax.set_ylabel(target.units)
-        ax.set_title(f"Linear combination fit — R²={r2:.4f}")
-        ax.legend(fontsize=7); ax.grid(alpha=0.25)
-        self.analysis_plot.figure.tight_layout()
-        self.analysis_plot.canvas.draw_idle()
 
     def pca_selected(self) -> None:
         """Athena-inspired PCA across a spectral series (M21): the explained-
