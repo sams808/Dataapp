@@ -104,7 +104,18 @@ class LcfBatchTabMixin:
         run_btn.clicked.connect(self.run_batch_lcf_clicked)
         ctrl_layout.addWidget(run_btn)
 
-        report_btn = QPushButton("Generate report (PDF + MD)…")
+        ctrl_layout.addWidget(QLabel("Report output"))
+        self.lcf_save_pdf_check = QCheckBox("PDF")
+        self.lcf_save_pdf_check.setChecked(True)
+        ctrl_layout.addWidget(self.lcf_save_pdf_check)
+        self.lcf_save_md_check = QCheckBox("Markdown (.md)")
+        self.lcf_save_md_check.setChecked(True)
+        ctrl_layout.addWidget(self.lcf_save_md_check)
+        self.lcf_save_images_check = QCheckBox("Individual page images (.png)")
+        self.lcf_save_images_check.setChecked(True)
+        ctrl_layout.addWidget(self.lcf_save_images_check)
+
+        report_btn = QPushButton("Generate report…")
         report_btn.clicked.connect(self.generate_batch_lcf_report_clicked)
         ctrl_layout.addWidget(report_btn)
 
@@ -265,18 +276,41 @@ class LcfBatchTabMixin:
         if not self._lcf_batch_results:
             QMessageBox.warning(self, "Batch LCF report", "Run the batch fit first.")
             return
-        out_dir_str = QFileDialog.getExistingDirectory(self, "Select output folder for the report")
-        if not out_dir_str:
+        save_pdf = self.lcf_save_pdf_check.isChecked()
+        save_md = self.lcf_save_md_check.isChecked()
+        save_images = self.lcf_save_images_check.isChecked()
+        if not (save_pdf or save_md):
+            QMessageBox.warning(self, "Batch LCF report", "Check at least PDF or Markdown to save.")
             return
+
+        # One "Save As" dialog for both name and location, matching how
+        # every other export in this app works, rather than a folder
+        # picker plus a separate fixed filename -- the dialog's own
+        # extension is just a suggestion; whichever formats are checked
+        # above get written next to whatever base name/location is chosen.
+        if save_pdf:
+            name_filter, default_suffix = "PDF files (*.pdf)", ".pdf"
+        else:
+            name_filter, default_suffix = "Markdown files (*.md)", ".md"
+        default_path = str(Path.home() / f"batch_lcf_report{default_suffix}")
+        chosen_path_str, _ = QFileDialog.getSaveFileName(self, "Save batch LCF report as…", default_path, name_filter)
+        if not chosen_path_str:
+            return
+        chosen_path = Path(chosen_path_str)
+        report_name = chosen_path.stem if chosen_path.suffix.lower() in (".pdf", ".md") else chosen_path.name
+        out_dir = chosen_path.parent
+
         params = self._lcf_params()
         try:
             out = build_batch_report(
                 self._lcf_batch_results, self._lcf_target_lookup, self._lcf_ref_lookup,
-                sort_by=params.sort_by, top_n=params.top_n_report, out_dir=Path(out_dir_str),
-                report_name="batch_lcf_report",
+                sort_by=params.sort_by, top_n=params.top_n_report, out_dir=out_dir, report_name=report_name,
+                save_pdf=save_pdf, save_md=save_md, save_page_images=save_images,
             )
         except Exception as exc:
             QMessageBox.critical(self, "Batch LCF report error", str(exc))
             return
-        self.lcf_status_label.setText(f"Report written: {out['pdf'].name}, {out['md'].name}")
-        QMessageBox.information(self, "Batch LCF report", f"Wrote:\n{out['pdf']}\n{out['md']}")
+
+        written = "\n".join(str(p) for p in out.values())
+        self.lcf_status_label.setText(f"Report written: {', '.join(p.name for p in out.values())}")
+        QMessageBox.information(self, "Batch LCF report", f"Wrote:\n{written}")

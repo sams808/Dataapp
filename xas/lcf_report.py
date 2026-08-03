@@ -125,54 +125,93 @@ def build_batch_report(results_by_target: Dict[str, List[LCFCombinationResult]],
                        target_lookup: Dict[str, Tuple[np.ndarray, np.ndarray]],
                        ref_lookup: Dict[str, Tuple[np.ndarray, np.ndarray]], *,
                        sort_by: str, top_n: int, out_dir: Path, report_name: str = "batch_lcf_report",
+                       save_pdf: bool = True, save_md: bool = True, save_page_images: bool = True,
                        x_label: str = "Energy (eV)", y_label: str = "Normalized signal") -> Dict[str, Path]:
-    """Writes `<report_name>.pdf` (all samples, 2 pages each) and
-    `<report_name>.md` (same content, PNGs embedded) to `out_dir`.
-    Returns {"pdf": path, "md": path, "figures_dir": path}."""
+    """Writes any combination of `<report_name>.pdf` (all samples, 2 pages
+    each), `<report_name>.md`, and standalone per-page PNGs (in
+    `<report_name>_figures/`) to `out_dir`, according to save_pdf/save_md/
+    save_page_images -- each format is independent, so PDF-only or MD-only
+    (with or without images) both work. If save_md is True but
+    save_page_images is False, the MD still gets its ranking tables/stats
+    text, just without embedded images (there's nothing to embed).
+    save_pdf and save_page_images both need the actual figures rendered;
+    if both are False, only the numeric results are used and no
+    matplotlib figure is ever built (saves the work for a text-only MD).
+    Returns whichever of {"pdf": path, "md": path, "figures_dir": path}
+    were actually written."""
+    if not (save_pdf or save_md):
+        raise ValueError("At least one of save_pdf or save_md must be True.")
+    need_figures = save_pdf or save_page_images
+
     out_dir = Path(out_dir)
-    fig_dir = out_dir / f"{report_name}_figures"
-    fig_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = out_dir / f"{report_name}.pdf"
-    md_path = out_dir / f"{report_name}.md"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    fig_dir = out_dir / f"{report_name}_figures" if save_page_images else None
+    if fig_dir is not None:
+        fig_dir.mkdir(parents=True, exist_ok=True)
+    pdf_path = out_dir / f"{report_name}.pdf" if save_pdf else None
+    md_path = out_dir / f"{report_name}.md" if save_md else None
 
-    md_lines = [f"# Batch LCF report", "",
-               f"{len(results_by_target)} sample(s), sorted by **{_METRIC_LABELS.get(sort_by, sort_by)}**.", ""]
+    md_lines = None
+    if save_md:
+        md_lines = [f"# Batch LCF report", "",
+                   f"{len(results_by_target)} sample(s), sorted by **{_METRIC_LABELS.get(sort_by, sort_by)}**.", ""]
 
-    with PdfPages(pdf_path) as pdf:
+    pdf = PdfPages(pdf_path) if save_pdf else None
+    try:
         for target_name, ranked_results in results_by_target.items():
             if not ranked_results:
-                md_lines.append(f"## {target_name}\n\nNo LCF combinations produced (check reference selection).\n")
+                if save_md:
+                    md_lines.append(f"## {target_name}\n\nNo LCF combinations produced (check reference selection).\n")
                 continue
             target_energy, target_y = target_lookup[target_name]
             best = ranked_results[0]
 
-            fig1 = build_fit_overlay_figure(best, target_energy, target_y, ref_lookup, x_label=x_label, y_label=y_label)
-            fig1.savefig(pdf, format="pdf")
-            png1 = fig_dir / f"{target_name}_fit.png"
-            fig1.savefig(png1, dpi=200, bbox_inches="tight")
-            plt.close(fig1)
+            png1 = png2 = None
+            if need_figures:
+                fig1 = build_fit_overlay_figure(best, target_energy, target_y, ref_lookup, x_label=x_label, y_label=y_label)
+                if pdf is not None:
+                    fig1.savefig(pdf, format="pdf")
+                if save_page_images:
+                    png1 = fig_dir / f"{target_name}_fit.png"
+                    fig1.savefig(png1, dpi=200, bbox_inches="tight")
+                plt.close(fig1)
 
-            fig2 = build_stats_page_figure(target_name, ranked_results, sort_by=sort_by, top_n=top_n)
-            fig2.savefig(pdf, format="pdf")
-            png2 = fig_dir / f"{target_name}_stats.png"
-            fig2.savefig(png2, dpi=200, bbox_inches="tight")
-            plt.close(fig2)
+                fig2 = build_stats_page_figure(target_name, ranked_results, sort_by=sort_by, top_n=top_n)
+                if pdf is not None:
+                    fig2.savefig(pdf, format="pdf")
+                if save_page_images:
+                    png2 = fig_dir / f"{target_name}_stats.png"
+                    fig2.savefig(png2, dpi=200, bbox_inches="tight")
+                plt.close(fig2)
 
-            md_lines.append(f"## {target_name}")
-            md_lines.append("")
-            md_lines.append(f"Best combination: **{' + '.join(best.ref_names)}** "
-                            f"(R²={_fmt(best.r2)}, RMS={_fmt(best.rms, 5)}, reduced χ²={_fmt(best.reduced_chi_square, 5)})")
-            md_lines.append("")
-            md_lines.append(f"![{target_name} fit]({fig_dir.name}/{png1.name})")
-            md_lines.append("")
-            md_lines.append(f"![{target_name} stats]({fig_dir.name}/{png2.name})")
-            md_lines.append("")
-            md_lines.append(f"| rank | combination (name:weight) | R² | RMS | reduced χ² |")
-            md_lines.append("|---|---|---|---|---|")
-            for i, r in enumerate(ranked_results[:top_n], start=1):
-                composition = ", ".join(f"{n}:{w:.3f}" for n, w in zip(r.ref_names, r.weights))
-                md_lines.append(f"| {i} | {composition} | {_fmt(r.r2)} | {_fmt(r.rms, 5)} | {_fmt(r.reduced_chi_square, 5)} |")
-            md_lines.append("")
+            if save_md:
+                md_lines.append(f"## {target_name}")
+                md_lines.append("")
+                md_lines.append(f"Best combination: **{' + '.join(best.ref_names)}** "
+                                f"(R²={_fmt(best.r2)}, RMS={_fmt(best.rms, 5)}, reduced χ²={_fmt(best.reduced_chi_square, 5)})")
+                md_lines.append("")
+                if png1 is not None:
+                    md_lines.append(f"![{target_name} fit]({fig_dir.name}/{png1.name})")
+                    md_lines.append("")
+                if png2 is not None:
+                    md_lines.append(f"![{target_name} stats]({fig_dir.name}/{png2.name})")
+                    md_lines.append("")
+                md_lines.append(f"| rank | combination (name:weight) | R² | RMS | reduced χ² |")
+                md_lines.append("|---|---|---|---|---|")
+                for i, r in enumerate(ranked_results[:top_n], start=1):
+                    composition = ", ".join(f"{n}:{w:.3f}" for n, w in zip(r.ref_names, r.weights))
+                    md_lines.append(f"| {i} | {composition} | {_fmt(r.r2)} | {_fmt(r.rms, 5)} | {_fmt(r.reduced_chi_square, 5)} |")
+                md_lines.append("")
+    finally:
+        if pdf is not None:
+            pdf.close()
 
-    md_path.write_text("\n".join(md_lines), encoding="utf-8")
-    return {"pdf": pdf_path, "md": md_path, "figures_dir": fig_dir}
+    out: Dict[str, Path] = {}
+    if save_md:
+        md_path.write_text("\n".join(md_lines), encoding="utf-8")
+        out["md"] = md_path
+    if save_pdf:
+        out["pdf"] = pdf_path
+    if save_page_images:
+        out["figures_dir"] = fig_dir
+    return out

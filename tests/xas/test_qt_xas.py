@@ -508,13 +508,82 @@ def test_batch_lcf_generate_report_writes_files(qtbot, tmp_path, monkeypatch):
     widget.lcf_max_components_spin.setValue(2)
     widget.run_batch_lcf_clicked()
 
-    monkeypatch.setattr("xas._qt_xas_lcf_batch.QFileDialog.getExistingDirectory", staticmethod(lambda *a, **k: str(tmp_path)))
+    chosen = str(tmp_path / "batch_lcf_report.pdf")
+    monkeypatch.setattr("xas._qt_xas_lcf_batch.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (chosen, "PDF files (*.pdf)")))
     widget.generate_batch_lcf_report_clicked()
 
     assert (tmp_path / "batch_lcf_report.pdf").exists()
     assert (tmp_path / "batch_lcf_report.md").exists()
     md_text = (tmp_path / "batch_lcf_report.md").read_text(encoding="utf-8")
     assert "## sampleA" in md_text and "## sampleB" in md_text
+
+
+def test_batch_lcf_report_respects_format_checkboxes_and_custom_name(qtbot, tmp_path, monkeypatch):
+    """PDF unchecked, MD + individual images checked, custom base name --
+    exercises the actual checkboxes and the Save As dialog's chosen name,
+    not just the default all-on path the previous test covers."""
+    widget = XasWorkspace()
+    qtbot.addWidget(widget)
+    energy, refs, targets = _lcf_synthetic_pool(seed=4)
+
+    for name, y in refs.items():
+        widget.store.add(Spectrum(sid=_uid("sp"), name=name, kind="flat", energy=energy, y=y))
+    for name, y in targets.items():
+        widget.store.add(Spectrum(sid=_uid("sp"), name=name, kind="flat", energy=energy, y=y))
+    widget._refresh_all()
+
+    for i in range(widget.lcf_targets_list.count()):
+        if widget.lcf_targets_list.item(i).text() in targets:
+            widget.lcf_targets_list.item(i).setSelected(True)
+    for i in range(widget.lcf_refs_list.count()):
+        if widget.lcf_refs_list.item(i).text() in refs:
+            widget.lcf_refs_list.item(i).setSelected(True)
+    widget.lcf_min_components_spin.setValue(2)
+    widget.lcf_max_components_spin.setValue(2)
+    widget.run_batch_lcf_clicked()
+
+    widget.lcf_save_pdf_check.setChecked(False)
+    widget.lcf_save_md_check.setChecked(True)
+    widget.lcf_save_images_check.setChecked(True)
+
+    chosen = str(tmp_path / "my_custom_lcf_run.md")
+    monkeypatch.setattr("xas._qt_xas_lcf_batch.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (chosen, "Markdown files (*.md)")))
+    widget.generate_batch_lcf_report_clicked()
+
+    assert (tmp_path / "my_custom_lcf_run.md").exists()
+    assert not (tmp_path / "my_custom_lcf_run.pdf").exists()
+    figures_dir = tmp_path / "my_custom_lcf_run_figures"
+    assert figures_dir.exists()
+    assert len(list(figures_dir.glob("*.png"))) == 4  # 2 targets x 2 pages
+
+
+def test_batch_lcf_report_warns_when_no_format_checked(qtbot, monkeypatch):
+    widget = XasWorkspace()
+    qtbot.addWidget(widget)
+    energy, refs, targets = _lcf_synthetic_pool(seed=5)
+    for name, y in refs.items():
+        widget.store.add(Spectrum(sid=_uid("sp"), name=name, kind="flat", energy=energy, y=y))
+    for name, y in targets.items():
+        widget.store.add(Spectrum(sid=_uid("sp"), name=name, kind="flat", energy=energy, y=y))
+    widget._refresh_all()
+    for i in range(widget.lcf_targets_list.count()):
+        if widget.lcf_targets_list.item(i).text() in targets:
+            widget.lcf_targets_list.item(i).setSelected(True)
+    for i in range(widget.lcf_refs_list.count()):
+        if widget.lcf_refs_list.item(i).text() in refs:
+            widget.lcf_refs_list.item(i).setSelected(True)
+    widget.run_batch_lcf_clicked()
+
+    widget.lcf_save_pdf_check.setChecked(False)
+    widget.lcf_save_md_check.setChecked(False)
+
+    save_dialog_called = []
+    monkeypatch.setattr("xas._qt_xas_lcf_batch.QFileDialog.getSaveFileName",
+                        staticmethod(lambda *a, **k: save_dialog_called.append(1) or ("", "")))
+    monkeypatch.setattr("xas._qt_xas_lcf_batch.QMessageBox.warning", staticmethod(lambda *a, **k: None))
+    widget.generate_batch_lcf_report_clicked()
+
+    assert save_dialog_called == []  # warned and returned before ever opening the save dialog
 
 
 def test_batch_lcf_required_refs_list_tracks_ref_selection(qtbot):

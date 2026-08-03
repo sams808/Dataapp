@@ -59,6 +59,59 @@ def test_build_batch_report_creates_pdf_md_and_pngs(tmp_path):
     assert len(pngs) == 4  # 2 samples x 2 pages each
 
 
+def test_build_batch_report_pdf_only_writes_no_md_or_images(tmp_path):
+    results, target_lookup, ref_lookup, params = _make_batch(n_targets=2)
+    out = lr.build_batch_report(
+        results, target_lookup, ref_lookup,
+        sort_by="r2", top_n=params.top_n_report, out_dir=tmp_path, report_name="pdf_only",
+        save_pdf=True, save_md=False, save_page_images=False,
+    )
+    assert set(out.keys()) == {"pdf"}
+    assert out["pdf"].exists() and out["pdf"].stat().st_size > 0
+    assert not (tmp_path / "pdf_only.md").exists()
+    assert not (tmp_path / "pdf_only_figures").exists()
+
+
+def test_build_batch_report_md_only_writes_no_pdf_or_images(tmp_path):
+    results, target_lookup, ref_lookup, params = _make_batch(n_targets=2)
+    out = lr.build_batch_report(
+        results, target_lookup, ref_lookup,
+        sort_by="r2", top_n=params.top_n_report, out_dir=tmp_path, report_name="md_only",
+        save_pdf=False, save_md=True, save_page_images=False,
+    )
+    assert set(out.keys()) == {"md"}
+    assert out["md"].exists()
+    assert not (tmp_path / "md_only.pdf").exists()
+    assert not (tmp_path / "md_only_figures").exists()
+    text = out["md"].read_text(encoding="utf-8")
+    # No images to embed, but the ranking table/stats text is still there.
+    assert "![" not in text
+    assert "| rank |" in text
+
+
+def test_build_batch_report_md_with_images_but_no_pdf(tmp_path):
+    results, target_lookup, ref_lookup, params = _make_batch(n_targets=1)
+    out = lr.build_batch_report(
+        results, target_lookup, ref_lookup,
+        sort_by="r2", top_n=params.top_n_report, out_dir=tmp_path, report_name="md_with_images",
+        save_pdf=False, save_md=True, save_page_images=True,
+    )
+    assert set(out.keys()) == {"md", "figures_dir"}
+    text = out["md"].read_text(encoding="utf-8")
+    assert "![" in text
+    assert len(list(out["figures_dir"].glob("*.png"))) == 2
+
+
+def test_build_batch_report_requires_at_least_one_of_pdf_or_md(tmp_path):
+    results, target_lookup, ref_lookup, params = _make_batch(n_targets=1)
+    with pytest.raises(ValueError):
+        lr.build_batch_report(
+            results, target_lookup, ref_lookup,
+            sort_by="r2", top_n=params.top_n_report, out_dir=tmp_path, report_name="neither",
+            save_pdf=False, save_md=False, save_page_images=True,
+        )
+
+
 def test_build_batch_report_md_contains_each_sample_section(tmp_path):
     results, target_lookup, ref_lookup, params = _make_batch(n_targets=2)
     out = lr.build_batch_report(
