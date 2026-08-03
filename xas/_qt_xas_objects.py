@@ -150,6 +150,7 @@ class ObjectListMixin:
         self._fill_list(self.lcf_targets_list, all_names)
         self._fill_list(self.lcf_refs_list, all_names)
         self._refresh_lcf_required_list()
+        self._refresh_lcf_bounds_table()
 
     def _refresh_lcf_required_list(self) -> None:
         # "Always include" options are limited to whatever's currently

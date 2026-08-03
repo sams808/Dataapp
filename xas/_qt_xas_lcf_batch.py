@@ -10,15 +10,24 @@ Analysis tab's single-fit LCF, so "import a lot of normalized spectra"
 just means importing them via the existing CSV.../ZIP... buttons like
 any other spectra, then picking which ones are targets vs. references
 here.
+
+Tuning controls (align e0, per-reference weight bounds, fit range) were
+added after a real-data review found Bi_metal picking up a substantial,
+chemically-implausible weight across nearly every oxide glass sample --
+the residual was a sharp, localized spike right at the edge, the
+signature of energy-misaligned references being absorbed into an
+unphysical weight, not a real 4th phase. See xas/lcf_batch.py's module
+docstring for the full story.
 """
 from __future__ import annotations
 
 import itertools
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Tuple
 
 import numpy as np
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QMessageBox, QPushButton, QSpinBox, QTableWidget,
@@ -40,7 +49,7 @@ class LcfBatchTabMixin:
         layout = QHBoxLayout(w)
 
         ctrl = QWidget()
-        ctrl.setMaximumWidth(360)
+        ctrl.setMaximumWidth(380)
         ctrl_layout = QVBoxLayout(ctrl)
 
         ctrl_layout.addWidget(QLabel("Targets (samples, multi-select)"))
@@ -51,13 +60,13 @@ class LcfBatchTabMixin:
         ctrl_layout.addWidget(QLabel("References (standards, multi-select)"))
         self.lcf_refs_list = QListWidget()
         self.lcf_refs_list.setSelectionMode(QListWidget.ExtendedSelection)
-        self.lcf_refs_list.itemSelectionChanged.connect(self._refresh_lcf_required_list)
+        self.lcf_refs_list.itemSelectionChanged.connect(self._on_lcf_refs_selection_changed)
         ctrl_layout.addWidget(self.lcf_refs_list, 1)
 
         ctrl_layout.addWidget(QLabel("Always include (optional subset of references above)"))
         self.lcf_required_list = QListWidget()
         self.lcf_required_list.setSelectionMode(QListWidget.ExtendedSelection)
-        self.lcf_required_list.setMaximumHeight(70)
+        self.lcf_required_list.setMaximumHeight(60)
         ctrl_layout.addWidget(self.lcf_required_list)
 
         comp_row = QHBoxLayout()
@@ -74,18 +83,50 @@ class LcfBatchTabMixin:
         ctrl_layout.addLayout(comp_row)
 
         bounds_row = QHBoxLayout()
-        bounds_row.addWidget(QLabel("weight min"))
+        bounds_row.addWidget(QLabel("default weight min"))
         self.lcf_weight_lb_edit = QLineEdit("0.0")
-        self.lcf_weight_lb_edit.setMaximumWidth(55)
+        self.lcf_weight_lb_edit.setMaximumWidth(50)
         bounds_row.addWidget(self.lcf_weight_lb_edit)
         bounds_row.addWidget(QLabel("max"))
         self.lcf_weight_ub_edit = QLineEdit("1.0")
-        self.lcf_weight_ub_edit.setMaximumWidth(55)
+        self.lcf_weight_ub_edit.setMaximumWidth(50)
         bounds_row.addWidget(self.lcf_weight_ub_edit)
         ctrl_layout.addLayout(bounds_row)
 
+        ctrl_layout.addWidget(QLabel(
+            "Per-reference weight bounds (blank cell = use the default above).\n"
+            "Encode real expectations here, e.g. Bi2O3 min=0.3 to force it\n"
+            "dominant, Bi_metal max=0.15 to keep it minor."
+        ))
+        self.lcf_bounds_table = QTableWidget(0, 3)
+        self.lcf_bounds_table.setHorizontalHeaderLabels(["Reference", "min", "max"])
+        self.lcf_bounds_table.setMaximumHeight(130)
+        self.lcf_bounds_table.cellChanged.connect(self._on_lcf_bounds_table_changed)
+        ctrl_layout.addWidget(self.lcf_bounds_table)
+        self._lcf_bounds_cache: Dict[str, Tuple[str, str]] = {}
+
         self.lcf_sum_to_one_check = QCheckBox("Constrain weights to sum to 1")
         ctrl_layout.addWidget(self.lcf_sum_to_one_check)
+
+        self.lcf_align_e0_check = QCheckBox("Align references to target e0 before fitting")
+        self.lcf_align_e0_check.setToolTip(
+            "Shifts each reference's own energy axis (derivative-estimated "
+            "edge position) onto the target's own edge before fitting. Turn "
+            "this on if a residual shows a sharp spike right at the edge -- "
+            "that's energy misalignment being absorbed into a weight, not a "
+            "real extra phase."
+        )
+        ctrl_layout.addWidget(self.lcf_align_e0_check)
+
+        range_row = QHBoxLayout()
+        range_row.addWidget(QLabel("fit range (eV)"))
+        self.lcf_fit_range_lo_edit = QLineEdit("")
+        self.lcf_fit_range_lo_edit.setPlaceholderText("min (blank = full)")
+        range_row.addWidget(self.lcf_fit_range_lo_edit)
+        self.lcf_fit_range_hi_edit = QLineEdit("")
+        self.lcf_fit_range_hi_edit.setPlaceholderText("max (blank = full)")
+        range_row.addWidget(self.lcf_fit_range_hi_edit)
+        ctrl_layout.addLayout(range_row)
 
         sort_row = QHBoxLayout()
         sort_row.addWidget(QLabel("Rank by"))
@@ -105,15 +146,23 @@ class LcfBatchTabMixin:
         ctrl_layout.addWidget(run_btn)
 
         ctrl_layout.addWidget(QLabel("Report output"))
+        report_row = QHBoxLayout()
         self.lcf_save_pdf_check = QCheckBox("PDF")
         self.lcf_save_pdf_check.setChecked(True)
-        ctrl_layout.addWidget(self.lcf_save_pdf_check)
-        self.lcf_save_md_check = QCheckBox("Markdown (.md)")
+        report_row.addWidget(self.lcf_save_pdf_check)
+        self.lcf_save_md_check = QCheckBox("Markdown")
         self.lcf_save_md_check.setChecked(True)
-        ctrl_layout.addWidget(self.lcf_save_md_check)
-        self.lcf_save_images_check = QCheckBox("Individual page images (.png)")
-        self.lcf_save_images_check.setChecked(True)
-        ctrl_layout.addWidget(self.lcf_save_images_check)
+        report_row.addWidget(self.lcf_save_md_check)
+        ctrl_layout.addLayout(report_row)
+
+        ctrl_layout.addWidget(QLabel("Individual page images"))
+        image_row = QHBoxLayout()
+        self.lcf_save_png_check = QCheckBox("PNG")
+        self.lcf_save_png_check.setChecked(True)
+        image_row.addWidget(self.lcf_save_png_check)
+        self.lcf_save_svg_check = QCheckBox("SVG")
+        image_row.addWidget(self.lcf_save_svg_check)
+        ctrl_layout.addLayout(image_row)
 
         report_btn = QPushButton("Generate report…")
         report_btn.clicked.connect(self.generate_batch_lcf_report_clicked)
@@ -146,18 +195,70 @@ class LcfBatchTabMixin:
         return w
 
     # ------------------------------------------------------------------
+    def _on_lcf_refs_selection_changed(self) -> None:
+        self._refresh_lcf_required_list()
+        self._refresh_lcf_bounds_table()
+
+    def _on_lcf_bounds_table_changed(self, row: int, _col: int) -> None:
+        name_item = self.lcf_bounds_table.item(row, 0)
+        if name_item is None:
+            return
+        min_item = self.lcf_bounds_table.item(row, 1)
+        max_item = self.lcf_bounds_table.item(row, 2)
+        self._lcf_bounds_cache[name_item.text()] = (
+            min_item.text().strip() if min_item else "",
+            max_item.text().strip() if max_item else "",
+        )
+
+    def _refresh_lcf_bounds_table(self) -> None:
+        selected_refs = [item.text() for item in self.lcf_refs_list.selectedItems()]
+        self.lcf_bounds_table.blockSignals(True)
+        self.lcf_bounds_table.setRowCount(len(selected_refs))
+        for row, name in enumerate(selected_refs):
+            name_item = QTableWidgetItem(name)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+            self.lcf_bounds_table.setItem(row, 0, name_item)
+            min_text, max_text = self._lcf_bounds_cache.get(name, ("", ""))
+            self.lcf_bounds_table.setItem(row, 1, QTableWidgetItem(min_text))
+            self.lcf_bounds_table.setItem(row, 2, QTableWidgetItem(max_text))
+        self.lcf_bounds_table.blockSignals(False)
+        self.lcf_bounds_table.resizeColumnsToContents()
+
+    def _lcf_per_ref_bounds(self, default_lb: float, default_ub: float) -> Dict[str, Tuple[float, float]]:
+        out: Dict[str, Tuple[float, float]] = {}
+        for row in range(self.lcf_bounds_table.rowCount()):
+            name_item = self.lcf_bounds_table.item(row, 0)
+            if name_item is None:
+                continue
+            min_item = self.lcf_bounds_table.item(row, 1)
+            max_item = self.lcf_bounds_table.item(row, 2)
+            min_text = min_item.text().strip() if min_item else ""
+            max_text = max_item.text().strip() if max_item else ""
+            if not min_text and not max_text:
+                continue  # both blank -> use the global default, no override needed
+            lb = _to_float(min_text, default_lb) if min_text else default_lb
+            ub = _to_float(max_text, default_ub) if max_text else default_ub
+            out[name_item.text()] = (lb, ub)
+        return out
+
     def _lcf_params(self) -> BatchLCFParams:
         lb = _to_float(self.lcf_weight_lb_edit.text(), 0.0)
         ub = _to_float(self.lcf_weight_ub_edit.text(), 1.0)
         required = tuple(item.text() for item in self.lcf_required_list.selectedItems())
+        fit_lo = _to_float(self.lcf_fit_range_lo_edit.text())
+        fit_hi = _to_float(self.lcf_fit_range_hi_edit.text())
+        fit_range = (fit_lo, fit_hi) if (fit_lo is not None and fit_hi is not None) else None
         return BatchLCFParams(
             min_components=self.lcf_min_components_spin.value(),
             max_components=self.lcf_max_components_spin.value(),
             weight_bounds=(lb, ub),
+            per_ref_bounds=self._lcf_per_ref_bounds(lb, ub),
             sum_to_one=self.lcf_sum_to_one_check.isChecked(),
             required_refs=required,
             sort_by=self.lcf_sort_combo.currentText(),
             top_n_report=self.lcf_top_n_spin.value(),
+            align_e0=self.lcf_align_e0_check.isChecked(),
+            fit_range=fit_range,
         )
 
     def _estimate_fit_count(self, n_targets: int, n_refs: int, params: BatchLCFParams) -> int:
@@ -194,7 +295,11 @@ class LcfBatchTabMixin:
             refs.append((sp.name, sp.energy, sp.y))
             ref_lookup[sp.name] = (sp.energy, sp.y)
 
-        params = self._lcf_params()
+        try:
+            params = self._lcf_params()
+        except ValueError as exc:
+            QMessageBox.critical(self, "Batch LCF", f"Bad parameter: {exc}")
+            return
         n_fits = self._estimate_fit_count(len(targets), len(refs), params)
         if n_fits > _MAX_FITS_WITHOUT_CONFIRM:
             resp = QMessageBox.question(
@@ -243,7 +348,10 @@ class LcfBatchTabMixin:
         on PlotWidget's one persistent axes (same ax.clear()-and-replot
         convention as every other tab's preview; the full 2-axes
         fit-plus-residual page is what the PDF/MD report itself renders,
-        via build_fit_overlay_figure, for a proper standalone figure)."""
+        via build_fit_overlay_figure, for a proper standalone figure).
+        Uses the result's own fit_energy (not the target's full range) and
+        applies any align_e0 shift, so the preview matches the report even
+        when fit_range/align_e0 are in play."""
         rows = self.lcf_summary_table.selectionModel().selectedRows()
         if not rows:
             return
@@ -258,14 +366,21 @@ class LcfBatchTabMixin:
         best = results[0]
         target_energy, target_y = self._lcf_target_lookup[name]
 
+        fit_lo, fit_hi = float(np.min(best.fit_energy)), float(np.max(best.fit_energy))
+        full_lo, full_hi = float(np.min(target_energy)), float(np.max(target_energy))
+        if fit_lo > full_lo + 1e-6 or fit_hi < full_hi - 1e-6:
+            ax.axvspan(fit_lo, fit_hi, color="0.85", zorder=0)
+
         ax.plot(target_energy, target_y, color="black", lw=1.5, label=f"{name} (data)", zorder=5)
-        ax.plot(target_energy, best.fit_y, color="red", lw=1.6, ls="--", label=f"fit (R²={best.r2:.4f})", zorder=4)
+        ax.plot(best.fit_energy, best.fit_y, color="red", lw=1.6, ls="--", label=f"fit (R²={best.r2:.4f})", zorder=4)
         colors = COLORS
         for i, (ref_name, weight) in enumerate(zip(best.ref_names, best.weights)):
             ref_e, ref_y = self._lcf_ref_lookup[ref_name]
-            ref_interp = _interp_to_grid(ref_e, ref_y, target_energy)
-            ax.plot(target_energy, weight * ref_interp, color=colors[i % len(colors)], lw=1.0, alpha=0.8,
-                    label=f"{ref_name} × {weight:.3f}")
+            shift = best.e0_shifts_ev.get(ref_name, 0.0)
+            ref_interp = _interp_to_grid(np.asarray(ref_e, float) + shift, ref_y, best.fit_energy)
+            shift_note = f", e0 {shift:+.1f} eV" if shift else ""
+            ax.plot(best.fit_energy, weight * ref_interp, color=colors[i % len(colors)], lw=1.0, alpha=0.8,
+                    label=f"{ref_name} × {weight:.3f}{shift_note}")
         ax.set_xlabel("Energy (eV)"); ax.set_ylabel("Normalized signal")
         ax.set_title(f"{name} — best: {' + '.join(best.ref_names)}", fontsize=10)
         ax.legend(fontsize=7.5); ax.grid(alpha=0.25)
@@ -278,7 +393,9 @@ class LcfBatchTabMixin:
             return
         save_pdf = self.lcf_save_pdf_check.isChecked()
         save_md = self.lcf_save_md_check.isChecked()
-        save_images = self.lcf_save_images_check.isChecked()
+        image_formats = tuple(fmt for fmt, check in
+                              [("png", self.lcf_save_png_check), ("svg", self.lcf_save_svg_check)]
+                              if check.isChecked())
         if not (save_pdf or save_md):
             QMessageBox.warning(self, "Batch LCF report", "Check at least PDF or Markdown to save.")
             return
@@ -305,7 +422,7 @@ class LcfBatchTabMixin:
             out = build_batch_report(
                 self._lcf_batch_results, self._lcf_target_lookup, self._lcf_ref_lookup,
                 sort_by=params.sort_by, top_n=params.top_n_report, out_dir=out_dir, report_name=report_name,
-                save_pdf=save_pdf, save_md=save_md, save_page_images=save_images,
+                save_pdf=save_pdf, save_md=save_md, image_formats=image_formats,
             )
         except Exception as exc:
             QMessageBox.critical(self, "Batch LCF report error", str(exc))

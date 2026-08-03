@@ -141,3 +141,185 @@ def test_weight_map_matches_ref_names_and_weights():
     wm = results[0].weight_map()
     assert set(wm.keys()) == set(results[0].ref_names)
     assert all(isinstance(v, float) for v in wm.values())
+
+
+def test_result_fit_energy_matches_target_energy_when_no_fit_range():
+    energy, refs = _synthetic_references(n_refs=2, seed=8)
+    results = lb.combinatorial_lcf("s", energy, refs[0][2], refs, min_components=2, max_components=2)
+    assert np.allclose(results[0].fit_energy, energy)
+    assert results[0].fit_y.shape == energy.shape
+
+
+# --------------------------------------------------------------------------
+# Per-reference weight bounds -- encoding real prior expectations
+# (e.g. "ref0 should dominate, ref1 should stay minor")
+# --------------------------------------------------------------------------
+
+def test_per_ref_bounds_forces_named_reference_above_its_floor():
+    energy, refs = _synthetic_references(n_refs=2, seed=9)
+    ref_lookup = {name: y for name, _, y in refs}
+    # True mix has ref0 as a MINOR component; force it major via bounds
+    # and confirm the fit actually respects the floor (at real fit-quality
+    # cost, since it no longer matches the true generating weights).
+    target_y = 0.1 * ref_lookup["ref0"] + 0.9 * ref_lookup["ref1"]
+
+    unconstrained = lb.combinatorial_lcf("s", energy, target_y, refs, min_components=2, max_components=2)
+    forced = lb.combinatorial_lcf(
+        "s", energy, target_y, refs, min_components=2, max_components=2,
+        per_ref_bounds={"ref0": (0.6, 1.0)},
+    )
+    assert unconstrained[0].weight_map()["ref0"] < 0.6
+    assert forced[0].weight_map()["ref0"] >= 0.6 - 1e-9
+    assert forced[0].r2 <= unconstrained[0].r2 + 1e-9  # constraint can only cost fit quality, never help
+
+
+def test_per_ref_bounds_caps_named_reference_below_ceiling():
+    energy, refs = _synthetic_references(n_refs=2, seed=10)
+    ref_lookup = {name: y for name, _, y in refs}
+    target_y = 0.5 * ref_lookup["ref0"] + 0.5 * ref_lookup["ref1"]
+
+    results = lb.combinatorial_lcf(
+        "s", energy, target_y, refs, min_components=2, max_components=2,
+        per_ref_bounds={"ref1": (0.0, 0.2)},
+    )
+    assert results[0].weight_map()["ref1"] <= 0.2 + 1e-9
+
+
+def test_per_ref_bounds_leaves_unlisted_references_at_default():
+    energy, refs = _synthetic_references(n_refs=3, seed=11)
+    ref_lookup = {name: y for name, _, y in refs}
+    target_y = 0.3 * ref_lookup["ref0"] + 0.3 * ref_lookup["ref1"] + 0.4 * ref_lookup["ref2"]
+
+    # Only ref0 gets a custom ceiling; ref1/ref2 should still be free to
+    # roam the default (0, 1) range.
+    results = lb.combinatorial_lcf(
+        "s", energy, target_y, refs, min_components=3, max_components=3,
+        weight_bounds=(0.0, 1.0), per_ref_bounds={"ref0": (0.0, 0.05)},
+    )
+    wm = results[0].weight_map()
+    assert wm["ref0"] <= 0.05 + 1e-9
+    assert wm["ref1"] > 0.05 or wm["ref2"] > 0.05  # at least one absorbed the rest, unconstrained
+
+
+def test_per_ref_bounds_invalid_range_raises():
+    energy, refs = _synthetic_references(n_refs=2, seed=12)
+    with pytest.raises(ValueError):
+        lb.combinatorial_lcf(
+            "s", energy, refs[0][2], refs, min_components=2, max_components=2,
+            per_ref_bounds={"ref0": (0.8, 0.2)},
+        )
+
+
+def test_per_ref_bounds_with_sum_to_one():
+    energy, refs = _synthetic_references(n_refs=3, seed=13)
+    ref_lookup = {name: y for name, _, y in refs}
+    target_y = 0.2 * ref_lookup["ref0"] + 0.3 * ref_lookup["ref1"] + 0.5 * ref_lookup["ref2"]
+
+    results = lb.combinatorial_lcf(
+        "s", energy, target_y, refs, min_components=3, max_components=3,
+        per_ref_bounds={"ref0": (0.5, 1.0)}, sum_to_one=True,
+    )
+    wm = results[0].weight_map()
+    assert wm["ref0"] >= 0.5 - 1e-6
+    assert abs(sum(wm.values()) - 1.0) < 1e-6
+
+
+# --------------------------------------------------------------------------
+# align_e0 -- fixes energy-misaligned references being absorbed into
+# unphysical weights instead of a real edge-position mismatch
+# --------------------------------------------------------------------------
+
+def test_estimate_e0_deriv_finds_known_edge_position():
+    from scipy.special import erf
+    energy = np.linspace(6900, 7300, 400)
+    e0_true = 7112.0
+    mu = 0.1 + 0.5 * (1 + erf((energy - e0_true) / 2.0))
+    e0_est = lb.estimate_e0_deriv(energy, mu)
+    assert abs(e0_est - e0_true) < 2.0  # within a couple grid points of the true edge
+
+
+def _synthetic_edge_spectrum(e0, energy):
+    """A real sigmoid edge (unlike _synthetic_references' multi-Gaussian-
+    peak shapes, which have no single well-defined "edge" for
+    estimate_e0_deriv to lock onto) -- needed for align_e0 tests
+    specifically."""
+    from scipy.special import erf
+    return 0.1 + 0.5 * (1.0 + erf((energy - e0) / 2.5))
+
+
+def test_align_e0_recovers_fit_quality_lost_to_misalignment():
+    """Two references with DIFFERENT true edge positions; the target is
+    an exact mix of them (each still at ITS OWN edge position, as real
+    unaligned standards would be) plus a shared reference2 held fixed.
+    align_e0=False should fit noticeably worse than align_e0=True, since
+    only the aligned fit can actually match a target edge sitting between
+    two differently-positioned reference edges."""
+    energy = np.linspace(6900.0, 7300.0, 300)
+    ref_e0s = {"edgeA": 7112.0, "edgeB": 7118.0}  # 6 eV apart -- a real, if generous, mismatch
+    refs = [(name, energy, _synthetic_edge_spectrum(e0, energy)) for name, e0 in ref_e0s.items()]
+    ref_lookup = {name: y for name, _, y in refs}
+
+    # A real, single-edge target sitting between the two reference edges
+    # -- no reference has the CORRECT edge position, only alignment can
+    # actually match its steep rising region well; an unconstrained
+    # linear combination of two same-shape-but-shifted edges can distort
+    # the fitted transition but can't reproduce the target's true slope
+    # location as well as shifting each reference onto it first.
+    target_y = _synthetic_edge_spectrum(7115.0, energy)
+
+    unaligned = lb.combinatorial_lcf("s", energy, target_y, refs, min_components=2, max_components=2, align_e0=False)
+    aligned = lb.combinatorial_lcf("s", energy, target_y, refs, min_components=2, max_components=2, align_e0=True)
+    assert aligned[0].r2 > unaligned[0].r2
+
+
+def test_align_e0_records_shift_per_reference_in_result():
+    energy, refs = _synthetic_references(n_refs=2, seed=15)
+    results = lb.combinatorial_lcf("s", energy, refs[0][2], refs, min_components=2, max_components=2, align_e0=True)
+    assert set(results[0].e0_shifts_ev.keys()) == set(results[0].ref_names)
+    assert all(isinstance(v, float) for v in results[0].e0_shifts_ev.values())
+
+
+def test_no_align_e0_leaves_e0_shifts_empty():
+    energy, refs = _synthetic_references(n_refs=2, seed=16)
+    results = lb.combinatorial_lcf("s", energy, refs[0][2], refs, min_components=2, max_components=2, align_e0=False)
+    assert results[0].e0_shifts_ev == {}
+
+
+# --------------------------------------------------------------------------
+# fit_range -- restrict fitting/scoring to an energy sub-window
+# --------------------------------------------------------------------------
+
+def test_fit_range_restricts_fit_energy_and_scoring():
+    energy, refs = _synthetic_references(n_refs=2, seed=17)
+    fit_range = (20.0, 80.0)
+    results = lb.combinatorial_lcf(
+        "s", energy, refs[0][2], refs, min_components=2, max_components=2, fit_range=fit_range,
+    )
+    assert results[0].fit_energy.min() >= fit_range[0]
+    assert results[0].fit_energy.max() <= fit_range[1]
+    assert results[0].n_points < energy.size
+
+
+def test_fit_range_outside_data_raises():
+    energy, refs = _synthetic_references(n_refs=2, seed=18)
+    with pytest.raises(ValueError):
+        lb.combinatorial_lcf(
+            "s", energy, refs[0][2], refs, min_components=2, max_components=2, fit_range=(1000.0, 2000.0),
+        )
+
+
+def test_batch_lcf_params_new_fields_have_sensible_defaults():
+    params = lb.BatchLCFParams()
+    assert params.align_e0 is False
+    assert params.fit_range is None
+    assert params.per_ref_bounds == {}
+
+
+def test_run_batch_lcf_passes_through_new_params():
+    energy, refs = _synthetic_references(n_refs=2, seed=19)
+    ref_lookup = {name: y for name, _, y in refs}
+    targets = [("t1", energy, 0.5 * ref_lookup["ref0"] + 0.5 * ref_lookup["ref1"])]
+    params = lb.BatchLCFParams(min_components=2, max_components=2, per_ref_bounds={"ref0": (0.3, 1.0)}, align_e0=True)
+    out = lb.run_batch_lcf(targets, refs, params)
+    assert out["t1"][0].weight_map()["ref0"] >= 0.3 - 1e-9
+    assert out["t1"][0].e0_shifts_ev  # align_e0 was on

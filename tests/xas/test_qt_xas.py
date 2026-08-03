@@ -544,7 +544,7 @@ def test_batch_lcf_report_respects_format_checkboxes_and_custom_name(qtbot, tmp_
 
     widget.lcf_save_pdf_check.setChecked(False)
     widget.lcf_save_md_check.setChecked(True)
-    widget.lcf_save_images_check.setChecked(True)
+    widget.lcf_save_png_check.setChecked(True)
 
     chosen = str(tmp_path / "my_custom_lcf_run.md")
     monkeypatch.setattr("xas._qt_xas_lcf_batch.QFileDialog.getSaveFileName", staticmethod(lambda *a, **k: (chosen, "Markdown files (*.md)")))
@@ -598,3 +598,66 @@ def test_batch_lcf_required_refs_list_tracks_ref_selection(qtbot):
     for i in range(widget.lcf_refs_list.count()):
         widget.lcf_refs_list.item(i).setSelected(True)
     assert widget.lcf_required_list.count() == len(refs)
+
+
+def test_batch_lcf_bounds_table_tracks_ref_selection_and_feeds_params(qtbot):
+    widget = XasWorkspace()
+    qtbot.addWidget(widget)
+    energy, refs, targets = _lcf_synthetic_pool(seed=6)
+    for name, y in refs.items():
+        widget.store.add(Spectrum(sid=_uid("sp"), name=name, kind="flat", energy=energy, y=y))
+    widget._refresh_all()
+
+    assert widget.lcf_bounds_table.rowCount() == 0
+    for i in range(widget.lcf_refs_list.count()):
+        widget.lcf_refs_list.item(i).setSelected(True)
+    assert widget.lcf_bounds_table.rowCount() == len(refs)
+
+    ref_name = widget.lcf_bounds_table.item(0, 0).text()
+    widget.lcf_bounds_table.item(0, 1).setText("0.4")  # min
+    widget.lcf_bounds_table.item(0, 2).setText("0.9")  # max
+
+    params = widget._lcf_params()
+    assert params.per_ref_bounds[ref_name] == (0.4, 0.9)
+    # An unedited row shouldn't appear as an override at all (uses the
+    # global default instead).
+    other_names = [widget.lcf_bounds_table.item(r, 0).text() for r in range(1, widget.lcf_bounds_table.rowCount())]
+    assert not any(n in params.per_ref_bounds for n in other_names)
+
+
+def test_batch_lcf_bounds_survive_deselect_and_reselect(qtbot):
+    """Values typed into the table shouldn't be lost if the user
+    temporarily deselects and reselects the same reference."""
+    widget = XasWorkspace()
+    qtbot.addWidget(widget)
+    energy, refs, targets = _lcf_synthetic_pool(seed=7)
+    for name, y in refs.items():
+        widget.store.add(Spectrum(sid=_uid("sp"), name=name, kind="flat", energy=energy, y=y))
+    widget._refresh_all()
+
+    for i in range(widget.lcf_refs_list.count()):
+        widget.lcf_refs_list.item(i).setSelected(True)
+    ref_name = widget.lcf_bounds_table.item(0, 0).text()
+    widget.lcf_bounds_table.item(0, 1).setText("0.25")
+
+    widget.lcf_refs_list.item(0).setSelected(False)
+    widget.lcf_refs_list.item(0).setSelected(True)
+
+    row = next(r for r in range(widget.lcf_bounds_table.rowCount()) if widget.lcf_bounds_table.item(r, 0).text() == ref_name)
+    assert widget.lcf_bounds_table.item(row, 1).text() == "0.25"
+
+
+def test_batch_lcf_align_e0_and_fit_range_reach_params(qtbot):
+    widget = XasWorkspace()
+    qtbot.addWidget(widget)
+
+    widget.lcf_align_e0_check.setChecked(True)
+    widget.lcf_fit_range_lo_edit.setText("13390")
+    widget.lcf_fit_range_hi_edit.setText("13470")
+    params = widget._lcf_params()
+    assert params.align_e0 is True
+    assert params.fit_range == (13390.0, 13470.0)
+
+    widget.lcf_fit_range_hi_edit.setText("")  # incomplete range -> None, not a half-open range
+    params2 = widget._lcf_params()
+    assert params2.fit_range is None
