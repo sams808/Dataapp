@@ -60,6 +60,13 @@ def test_import_csv_classifies_i0_and_it_by_filename(qtbot, tmp_path, monkeypatc
 
 
 def test_mu_builder_computes_new_object_and_deglitch_changes_output(qtbot):
+    """Rolling z-score method specifically (the test's own z/window
+    fields) -- selected explicitly since the noise-calibrated method is
+    now the tab's default and, correctly, declines to touch a perfectly
+    flat/noiseless synthetic baseline like this one (its 3x-noise
+    threshold is undefined when the true point-to-point noise is exactly
+    zero -- see test_mu_builder_noise_calibrated_deglitch_removes_spike
+    for that method's own, more representative coverage)."""
     widget = XasWorkspace()
     qtbot.addWidget(widget)
 
@@ -84,6 +91,7 @@ def test_mu_builder_computes_new_object_and_deglitch_changes_output(qtbot):
     assert mu_plain.y[150] > mu_plain.y[100] + 1.0  # glitch still present without deglitch
 
     widget.mu_deglitch_check.setChecked(True)
+    widget.mu_deglitch_method_combo.setCurrentIndex(1)  # "rolling z-score"
     widget.mu_deglitch_z_edit.setText("4.0")
     widget.mu_deglitch_window_edit.setText("15")
     widget.compute_mu_selected()
@@ -94,6 +102,38 @@ def test_mu_builder_computes_new_object_and_deglitch_changes_output(qtbot):
     mu_objects = [s for s in widget.store.all() if s.name == "It_a_mu"]
     assert len(mu_objects) == 2
     assert mu_objects[-1].y[150] < mu_objects[0].y[150]  # deglitched version pulls the spike down
+
+
+def test_mu_builder_noise_calibrated_deglitch_removes_spike(qtbot):
+    """The tab's default deglitch method (noise-calibrated, see
+    xas_science.deglitch_3x_noise) on a realistically-noisy signal --
+    unlike the rolling z-score test above, this needs actual point-to-
+    point noise for its 3x-noise threshold to be well-defined."""
+    widget = XasWorkspace()
+    qtbot.addWidget(widget)
+
+    rng = np.random.default_rng(0)
+    energy = np.linspace(7000, 7300, 300)
+    i0 = Spectrum(sid=_uid("sp"), name="I0_b", kind="I0", energy=energy, y=np.full(300, 100.0))
+    it_y = 50.0 + rng.normal(0.0, 0.05, size=300)
+    it_y[150] *= 0.2  # glitch, on top of the noise
+    it = Spectrum(sid=_uid("sp"), name="It_b", kind="It", energy=energy, y=it_y)
+    widget.store.add(i0)
+    widget.store.add(it)
+    widget._refresh_all()
+
+    widget.mu_i0_combo.setCurrentText("I0_b")
+    for i in range(widget.mu_it_list.count()):
+        if widget.mu_it_list.item(i).text() == "It_b":
+            widget.mu_it_list.item(i).setSelected(True)
+
+    assert widget.mu_deglitch_method_combo.currentIndex() == 0  # default is noise-calibrated
+    widget.mu_deglitch_check.setChecked(True)
+    widget.compute_mu_selected()
+    qtbot.wait(20)
+    mu_degl = widget.store.find_by_name("It_b_mu")
+    assert mu_degl is not None
+    assert mu_degl.y[150] < 1.0  # spike pulled back down near the surrounding baseline (~0.69)
 
 
 def test_normalize_selected_respects_custom_pre_edge_ranges(qtbot):

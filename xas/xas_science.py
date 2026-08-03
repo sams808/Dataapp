@@ -498,7 +498,22 @@ def larch_normalize(energy: np.ndarray, mu: np.ndarray, *, e0_method: str, e0_ma
     }
 
 
-def larch_exafs_pipeline(energy: np.ndarray, mu: np.ndarray, *, e0_method: str, e0_manual: Optional[float], pre1: float, pre2: float, norm1: float, norm2: float, nnorm: int, rbkg: float, kmin: float, kmax: float, dk: float, kweight: int, window: str, rmax_out: float, smooth_for_e0: Optional[Tuple[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
+def larch_exafs_pipeline(energy: np.ndarray, mu: np.ndarray, *, e0_method: str, e0_manual: Optional[float], pre1: float, pre2: float, norm1: float, norm2: float, nnorm: int, rbkg: float, kmin: float, kmax: float, dk: float, kweight: int, window: str, rmax_out: float, smooth_for_e0: Optional[Tuple[str, Dict[str, Any]]] = None, kmax_bkg: Optional[float] = None, clamp_lo: float = 0.0, clamp_hi: float = 24.0) -> Dict[str, Any]:
+    """`kmin`/`kmax` are the Fourier-transform (xftf) window only. autobk's
+    own background-fit range is a SEPARATE choice -- literature/Athena
+    convention, and this project's own real-data finding: capping autobk
+    to the same narrow window used for the later FT starves the
+    background spline of real data and makes the k-space plot look
+    truncated relative to what was actually measured (autobk's own kmax
+    parameter defaults to "full data range" when unset). `kmax_bkg`
+    controls that background-fit range independently; None (the default)
+    falls back to `kmax` for exact backward compatibility with callers
+    that don't set it. `clamp_lo`/`clamp_hi` default to Athena's own
+    documented spline-clamp defaults (0 / 24, "none" / "strong" on its
+    none/slight/weak/medium/strong/rigid=0/3/6/12/24/96 scale) -- larch's
+    own bare default (clamp_hi=1) is much weaker and "frequently
+    [needs] improve[ment]" per Athena's own docs, confirmed against this
+    app's real Bi L3 EXAFS data."""
     Group, xraydb, find_e0, pre_edge, autobk, xftf = require_larch()
     energy = np.asarray(energy, float); mu = np.asarray(mu, float)
 
@@ -524,7 +539,9 @@ def larch_exafs_pipeline(energy: np.ndarray, mu: np.ndarray, *, e0_method: str, 
     # must be passed as explicit kwargs to pre_edge() — setting them as
     # Group attributes beforehand was silently ignored.
     pre_edge(g, e0=e0, pre1=float(pre1), pre2=float(pre2), norm1=float(norm1), norm2=float(norm2), nnorm=int(nnorm))
-    _call_larch_func(autobk, g, rbkg=float(rbkg), kmin=float(kmin), kmax=float(kmax), dk=float(dk))
+    kmax_bkg_use = float(kmax) if kmax_bkg is None else float(kmax_bkg)
+    _call_larch_func(autobk, g, rbkg=float(rbkg), kmin=0.0, kmax=kmax_bkg_use, dk=float(dk),
+                     clamp_lo=float(clamp_lo), clamp_hi=float(clamp_hi))
 
     k = np.asarray(getattr(g, "k", []), float); chi = np.asarray(getattr(g, "chi", []), float)
     if k.size == 0 or chi.size == 0:
@@ -532,13 +549,14 @@ def larch_exafs_pipeline(energy: np.ndarray, mu: np.ndarray, *, e0_method: str, 
 
     kw = int(kweight)
     chi_kw = chi * np.power(np.clip(k, 0, np.inf), kw)
+    bkg = np.asarray(getattr(g, "bkg", np.full_like(mu, np.nan)), float)
     _call_larch_func(xftf, g, kmin=float(kmin), kmax=float(kmax), dk=float(dk), kweight=kw, window=str(window), rmax_out=float(rmax_out))
 
     return {
         "e0": e0, "norm": np.asarray(getattr(g, "norm", np.full_like(mu, np.nan)), float),
         "flat": np.asarray(getattr(g, "flat", np.full_like(mu, np.nan)), float),
         "deriv": np.asarray(np.gradient(mu_use, energy), float),
-        "k": k, "chi": chi, "chi_kw": chi_kw,
+        "k": k, "chi": chi, "chi_kw": chi_kw, "bkg": bkg, "kmax_bkg": kmax_bkg_use,
         "r": np.asarray(getattr(g, "r", []), float),
         "chir_mag": np.asarray(getattr(g, "chir_mag", []), float),
         "chir_re": np.asarray(getattr(g, "chir_re", []), float),
@@ -1167,6 +1185,47 @@ def deglitch_mu(mu: np.ndarray, *, z: float = 6.0, window: int = 21) -> np.ndarr
     out = mu.copy()
     out[glitch_mask] = baseline[glitch_mask]
     return out
+
+
+def estimate_noise(y: np.ndarray) -> float:
+    """MAD of first differences -- a successive-difference noise estimator:
+    for a signal that varies slowly point-to-point relative to the noise,
+    Var(diff) stays noise-dominated even right at a real peak/trough,
+    unlike a rolling-window median's own baseline (see deglitch_3x_noise)."""
+    diff = np.diff(np.asarray(y, float))
+    if diff.size == 0:
+        return 0.0
+    return 1.4826 * float(np.median(np.abs(diff - np.median(diff))))
+
+
+def deglitch_3x_noise(y: np.ndarray, *, local_window: int = 5, noise_multiple: float = 3.0) -> Tuple[np.ndarray, np.ndarray]:
+    """Alternative to deglitch_mu, calibrated to a genuine noise level
+    instead of a rolling-window median: deglitch_mu's wide window can get
+    its own baseline biased near a real oscillation extremum (the window
+    mostly samples one side of the peak), which reads a legitimate signal
+    as an outlier relative to that biased baseline -- confirmed on this
+    app's own Bi L3 EXAFS data (flagged 19 points on a clean NaBiO3 scan,
+    almost all real oscillation peaks/troughs, not glitches). This instead
+    flags a point only if it deviates from a SHORT local baseline (its own
+    immediate neighbors) by at least `noise_multiple` times the
+    successive-difference noise level -- a calibrated threshold rather
+    than an arbitrary window/z pair. Returns (cleaned_y, flagged_indices)."""
+    y = np.asarray(y, float)
+    n = y.size
+    if n < 2 * local_window + 3:
+        return y.copy(), np.array([], dtype=int)
+    noise = estimate_noise(y)
+    if noise <= 0:
+        return y.copy(), np.array([], dtype=int)
+    out = y.copy()
+    flagged = []
+    for i in range(local_window, n - local_window):
+        neighbors = np.concatenate([y[i - local_window:i], y[i + 1:i + 1 + local_window]])
+        baseline = np.median(neighbors)
+        if abs(y[i] - baseline) > noise_multiple * noise:
+            out[i] = baseline
+            flagged.append(i)
+    return out, np.array(flagged, dtype=int)
 
 
 def compute_mu(

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.qt_widgets import PlotWidget, to_float as _to_float
-from xas.xas_science import Operation, Spectrum, build_mu, deglitch_mu
+from xas.xas_science import Operation, Spectrum, build_mu, deglitch_3x_noise, deglitch_mu
 from ._qt_xas_shared import COLORS, _to_int, for_each_selected_spectrum
 
 
@@ -47,6 +47,11 @@ class MuTabMixin:
 
         self.mu_deglitch_check = QCheckBox("Deglitch")
         ctrl_layout.addWidget(self.mu_deglitch_check)
+        self.mu_deglitch_method_combo = QComboBox()
+        self.mu_deglitch_method_combo.addItems(["noise-calibrated (recommended)", "rolling z-score"])
+        self.mu_deglitch_method_combo.currentIndexChanged.connect(self._on_deglitch_method_changed)
+        ctrl_layout.addWidget(self.mu_deglitch_method_combo)
+
         degl_row = QHBoxLayout()
         degl_row.addWidget(QLabel("z"))
         self.mu_deglitch_z_edit = QLineEdit("6.0")
@@ -57,6 +62,18 @@ class MuTabMixin:
         self.mu_deglitch_window_edit.setMaximumWidth(50)
         degl_row.addWidget(self.mu_deglitch_window_edit)
         ctrl_layout.addLayout(degl_row)
+
+        degl_row2 = QHBoxLayout()
+        degl_row2.addWidget(QLabel("noise x"))
+        self.mu_deglitch_noise_mult_edit = QLineEdit("3.0")
+        self.mu_deglitch_noise_mult_edit.setMaximumWidth(50)
+        degl_row2.addWidget(self.mu_deglitch_noise_mult_edit)
+        degl_row2.addWidget(QLabel("local window"))
+        self.mu_deglitch_local_window_edit = QLineEdit("5")
+        self.mu_deglitch_local_window_edit.setMaximumWidth(50)
+        degl_row2.addWidget(self.mu_deglitch_local_window_edit)
+        ctrl_layout.addLayout(degl_row2)
+        self._on_deglitch_method_changed()
 
         preview_btn = QPushButton("Preview μ")
         preview_btn.clicked.connect(self._preview_mu)
@@ -72,17 +89,30 @@ class MuTabMixin:
         layout.addWidget(self.mu_plot, 1)
         return w
 
+    def _on_deglitch_method_changed(self) -> None:
+        is_noise_method = self.mu_deglitch_method_combo.currentIndex() == 0
+        self.mu_deglitch_z_edit.setEnabled(not is_noise_method)
+        self.mu_deglitch_window_edit.setEnabled(not is_noise_method)
+        self.mu_deglitch_noise_mult_edit.setEnabled(is_noise_method)
+        self.mu_deglitch_local_window_edit.setEnabled(is_noise_method)
+
     def _mu_deglitch_params(self):
         enabled = self.mu_deglitch_check.isChecked()
+        method = "noise" if self.mu_deglitch_method_combo.currentIndex() == 0 else "zscore"
         z = _to_float(self.mu_deglitch_z_edit.text(), 6.0)
         window = _to_int(self.mu_deglitch_window_edit.text(), 21)
-        return enabled, z, window
+        noise_multiple = _to_float(self.mu_deglitch_noise_mult_edit.text(), 3.0)
+        local_window = _to_int(self.mu_deglitch_local_window_edit.text(), 5)
+        return enabled, method, z, window, noise_multiple, local_window
 
     def _build_mu(self, i0: Spectrum, it: Spectrum) -> np.ndarray:
         mu = build_mu(i0_energy=i0.energy, i0=i0.y, it_energy=it.energy, it=it.y, log_mode=self.mu_log_combo.currentText())
-        enabled, z, window = self._mu_deglitch_params()
+        enabled, method, z, window, noise_multiple, local_window = self._mu_deglitch_params()
         if enabled:
-            mu = deglitch_mu(mu, z=z, window=window)
+            if method == "noise":
+                mu, _flagged = deglitch_3x_noise(mu, local_window=local_window, noise_multiple=noise_multiple)
+            else:
+                mu = deglitch_mu(mu, z=z, window=window)
         return mu
 
     def _preview_mu(self) -> None:
@@ -134,8 +164,12 @@ class MuTabMixin:
             sp_mu.y = np.asarray(mu, float)
             sp_mu.label = it.label
             sp_mu.e0 = it.e0
-            enabled, z, window = self._mu_deglitch_params()
-            sp_mu.history.append(Operation("mu_builder", {"I0": i0.name, "It": it.name, "log": self.mu_log_combo.currentText(), "deglitch": enabled, "deglitch_z": z, "deglitch_window": window}))
+            enabled, method, z, window, noise_multiple, local_window = self._mu_deglitch_params()
+            degl_params = {"deglitch": enabled, "deglitch_method": method}
+            if enabled:
+                degl_params.update({"deglitch_z": z, "deglitch_window": window} if method == "zscore"
+                                   else {"deglitch_noise_multiple": noise_multiple, "deglitch_local_window": local_window})
+            sp_mu.history.append(Operation("mu_builder", {"I0": i0.name, "It": it.name, "log": self.mu_log_combo.currentText(), **degl_params}))
             self.store.add(sp_mu)
             return sp_mu
 

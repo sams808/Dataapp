@@ -77,6 +77,26 @@ class NormTabMixin:
         self.exafs_kmax_edit = QLineEdit("15")
         ex_row1.addWidget(self.exafs_kmax_edit)
         ctrl_layout.addLayout(ex_row1)
+        ctrl_layout.addWidget(QLabel(
+            "kmin/kmax above are the Fourier-transform (R-space) window only.\n"
+            "Leave 'bkg kmax' blank to use the same value for the background\n"
+            "fit too (old behavior); set it wider to fit autobk's spline over\n"
+            "more of the data than the FT window trusts -- Athena/literature\n"
+            "convention, and autobk's own default is the full data range."
+        ))
+
+        ex_row1b = QHBoxLayout()
+        ex_row1b.addWidget(QLabel("bkg kmax"))
+        self.exafs_kmax_bkg_edit = QLineEdit("")
+        self.exafs_kmax_bkg_edit.setPlaceholderText("= kmax")
+        ex_row1b.addWidget(self.exafs_kmax_bkg_edit)
+        ex_row1b.addWidget(QLabel("clamp_lo"))
+        self.exafs_clamp_lo_edit = QLineEdit("0")
+        ex_row1b.addWidget(self.exafs_clamp_lo_edit)
+        ex_row1b.addWidget(QLabel("clamp_hi"))
+        self.exafs_clamp_hi_edit = QLineEdit("24")
+        ex_row1b.addWidget(self.exafs_clamp_hi_edit)
+        ctrl_layout.addLayout(ex_row1b)
 
         ex_row2 = QHBoxLayout()
         ex_row2.addWidget(QLabel("dk"))
@@ -169,6 +189,9 @@ class NormTabMixin:
         rbkg = _to_float(self.exafs_rbkg_edit.text(), 1.0)
         kmin = _to_float(self.exafs_kmin_edit.text(), 0.0)
         kmax = _to_float(self.exafs_kmax_edit.text(), 15.0)
+        kmax_bkg = _to_float(self.exafs_kmax_bkg_edit.text())  # None (blank) -> falls back to kmax
+        clamp_lo = _to_float(self.exafs_clamp_lo_edit.text(), 0.0)
+        clamp_hi = _to_float(self.exafs_clamp_hi_edit.text(), 24.0)
         dk = _to_float(self.exafs_dk_edit.text(), 0.1)
         kweight = _to_int(self.exafs_kweight_edit.text(), 2)
         window = self.exafs_window_combo.currentText()
@@ -179,6 +202,7 @@ class NormTabMixin:
                 sp.energy, sp.y, e0_method=e0_method, e0_manual=e0_manual, pre1=pre1, pre2=pre2,
                 norm1=norm1, norm2=norm2, nnorm=nnorm, rbkg=rbkg, kmin=kmin, kmax=kmax, dk=dk,
                 kweight=kweight, window=window, rmax_out=rmax_out, smooth_for_e0=smooth_for_e0,
+                kmax_bkg=kmax_bkg, clamp_lo=clamp_lo, clamp_hi=clamp_hi,
             )
 
             sp_norm = sp.copy(new_name=f"{sp.name}_norm", new_kind="norm"); sp_norm.y = out["norm"]; sp_norm.e0 = out["e0"]
@@ -188,7 +212,8 @@ class NormTabMixin:
             self.store.add(sp_norm); self.store.add(sp_flat)
 
             sp_chi = sp.copy(new_name=f"{sp.name}_chi", new_kind="chi(k)"); sp_chi.energy = out["k"]; sp_chi.y = out["chi"]; sp_chi.e0 = out["e0"]
-            sp_chi.history.append(Operation("autobk", {"rbkg": rbkg, "kmin": kmin, "kmax": kmax, "dk": dk}))
+            sp_chi.history.append(Operation("autobk", {"rbkg": rbkg, "kmin": 0.0, "kmax_bkg": out["kmax_bkg"],
+                                                       "dk": dk, "clamp_lo": clamp_lo, "clamp_hi": clamp_hi}))
             self.store.add(sp_chi)
 
             sp_chikw = sp.copy(new_name=f"{sp.name}_chi_k{kweight}", new_kind=f"chi(k)*k^{kweight}")
